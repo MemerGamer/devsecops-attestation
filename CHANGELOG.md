@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/MemerGamer/devsecops-attestation/compare/v0.2.0...v0.2.1) (2026-03-21)
+
+
+### CI/CD
+
+* add dependabot auto-merge workflow for patch and minor updates ([8d5fab8](https://github.com/MemerGamer/devsecops-attestation/commit/8d5fab8e498d4e54dd90987e8fd9e1fb0182964c))
+
+
+### Code Refactoring
+
+* enhanced test coverage and error handling in CLI commands ([cd75472](https://github.com/MemerGamer/devsecops-attestation/commit/cd75472713902e0c3a9bfb9e3d4a552fb6c19791))
+
 ## [0.2.0](https://github.com/MemerGamer/devsecops-attestation/compare/v0.1.0...v0.2.0) (2026-03-21)
 
 
