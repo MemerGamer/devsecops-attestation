@@ -55,12 +55,17 @@ func KeyPairFromBytes(pub, priv []byte) (*KeyPair, error) {
 	}, nil
 }
 
-// canonicalPayload produces a deterministic JSON encoding of the fields
-// that are covered by the signature. It deliberately excludes the Signature
-// and SignerPublicKey fields (which are set after signing).
+// CanonicalPayload returns the canonical JSON encoding of an attestation for use
+// as the signing payload. It excludes Signature and SignerPublicKey fields so
+// those can be set after signing without invalidating the signature.
 //
-// This is the single source of truth for what "signing an attestation" means.
-// Phase 3 threshold signing will call this function on each signer node.
+// This is the authoritative payload for both single-signer and threshold signing.
+// The threshold package calls this so all participants sign the same bytes.
+func CanonicalPayload(a *types.Attestation) ([]byte, error) {
+	return canonicalPayload(a)
+}
+
+// canonicalPayload is the internal implementation of CanonicalPayload.
 func canonicalPayload(a *types.Attestation) ([]byte, error) {
 	payload := struct {
 		ID             string                   `json:"id"`
