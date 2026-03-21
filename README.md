@@ -131,12 +131,12 @@ go run ./cmd/gate evaluate \
 - [x] `cmd/verify` — CLI chain verifier
 - [x] `cmd/gate` — deployment gate with OPA policy evaluation
 - [x] Unit tests: all tamper attack vectors covered
-- [ ] Integration test: full pipeline to chain to gate
+- [x] Integration tests: full pipeline to chain to gate
 - [ ] Transparency log submission (Rekor)
 
 ### Phase 3 — Threshold Signatures (MSc stretch / PhD seed)
 - [x] `internal/threshold/threshold.go` — interfaces and types (stub)
-- [ ] Simple t-of-n: collect t independent Ed25519 signatures
+- [x] Simple t-of-n: collect t independent Ed25519 signatures (`internal/threshold/multisig.go`)
 - [ ] FROST threshold scheme (proper single group signature)
 - [ ] PhD: distribute over network with `GossipProtocol`
 
