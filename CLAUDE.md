@@ -1,7 +1,7 @@
 # CLAUDE.md
 # DevSecOps Attestation - MSc Thesis Project
 # Cryptographically Verifiable Security Decisions in CI/CD-based DevSecOps Pipelines
-# Author: Kovacs Balint-Hunor, Sapientia EMTE
+# Author: Kovács Bálint-Hunor, Sapientia EMTE
 
 ## Project Identity
 

@@ -8,7 +8,7 @@
 Cryptographically verifiable security decisions in CI/CD pipelines.
 
 **MSc Thesis:** Cryptographically Verifiable Security Decisions in CI/CD-based DevSecOps Pipelines
-**Author:** Kovacs Balint-Hunor — Sapientia EMTE, Marosvásárhelyi Kar
+**Author:** Kovács Bálint-Hunor — Sapientia EMTE, Marosvásárhelyi Kar
 
 ---
 
