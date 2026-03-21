@@ -41,3 +41,4 @@ keys/
 # Pipeline artifacts
 gate-decision.json
 attestation-chain.json
+chain.json

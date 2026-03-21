@@ -49,7 +49,24 @@ go run ./cmd/keygen --out keys/
 # Store private.hex in GitHub Actions secrets as ATTESTATION_SIGNING_KEY
 ```
 
-### Sign a security result
+### Sign security results
+
+The default policy requires three checks: `sast`, `sca`, and `config`. Create a result
+file for each and sign them all into the chain before evaluating the gate.
+
+Each result file must be a JSON object with the following shape:
+
+```json
+{ "passed": true, "findings": [] }
+```
+
+Findings (optional) have the shape:
+
+```json
+{ "id": "CWE-89", "severity": "critical", "title": "SQL injection", "location": "src/db.go:42" }
+```
+
+Sign all three checks:
 
 ```bash
 go run ./cmd/sign \
@@ -60,17 +77,24 @@ go run ./cmd/sign \
   --subject myapp \
   --signing-key $(cat keys/private.hex) \
   --chain chain.json
-```
 
-The `--result` file must be a JSON object with the following shape:
+go run ./cmd/sign \
+  --check-type sca \
+  --tool trivy \
+  --result results/sca.json \
+  --target-ref $(git rev-parse HEAD) \
+  --subject myapp \
+  --signing-key $(cat keys/private.hex) \
+  --chain chain.json
 
-```json
-{
-  "passed": true,
-  "findings": [
-    { "id": "CWE-89", "severity": "critical", "title": "SQL injection", "location": "src/db.go:42" }
-  ]
-}
+go run ./cmd/sign \
+  --check-type config \
+  --tool checkov \
+  --result results/config.json \
+  --target-ref $(git rev-parse HEAD) \
+  --subject myapp \
+  --signing-key $(cat keys/private.hex) \
+  --chain chain.json
 ```
 
 ### Verify and evaluate the gate
