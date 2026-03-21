@@ -136,9 +136,17 @@ func VerifyChain(attestations []types.Attestation) ([]VerificationResult, error)
 				chainErr = r.Error
 			} else if a.PreviousDigest != expectedDigest {
 				r.ChainValid = false
+				got := a.PreviousDigest
+				if len(got) > 12 {
+					got = got[:12] + "..."
+				}
+				exp := expectedDigest
+				if len(exp) > 12 {
+					exp = exp[:12] + "..."
+				}
 				r.Error = fmt.Errorf(
-					"chain broken at position %d: expected digest %s, got %s",
-					i, expectedDigest[:12]+"...", a.PreviousDigest[:12]+"...",
+					"chain broken at position %d: expected digest %s, got %q",
+					i, exp, got,
 				)
 				chainErr = r.Error
 			} else {
