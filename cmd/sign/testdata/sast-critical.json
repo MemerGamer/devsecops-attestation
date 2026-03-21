@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "passed_count": 0,
+  "findings": [
+    {
+      "id": "CRIT-001",
+      "severity": "critical",
+      "title": "SQL injection vulnerability",
+      "location": "main.go:42"
+    }
+  ]
+}
