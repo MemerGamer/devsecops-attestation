@@ -30,3 +30,14 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Built binaries
+/bin/
+
+# Key material -- never commit private keys
+keys/
+*.hex
+
+# Pipeline artifacts
+gate-decision.json
+attestation-chain.json

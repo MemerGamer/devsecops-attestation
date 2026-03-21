@@ -1,0 +1,184 @@
+name: DevSecOps Attested Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  # The signing key is stored as a GitHub Actions secret.
+  # Generate with: go run ./cmd/keygen
+  # Store the hex-encoded private key as ATTESTATION_SIGNING_KEY
+  ARTIFACT_REF: ${{ github.sha }}
+  APP_NAME: ${{ github.repository }}
+
+jobs:
+  # Phase 1 + 2: Run security checks, sign each result, build chain
+  security-checks:
+    runs-on: ubuntu-latest
+    outputs:
+      chain-artifact: ${{ steps.upload-chain.outputs.artifact-id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build attestation tooling
+        run: |
+          mkdir -p bin
+          go build -o ./bin/keygen ./cmd/keygen
+          go build -o ./bin/attest ./cmd/sign
+          go build -o ./bin/verify ./cmd/verify
+          go build -o ./bin/gate ./cmd/gate
+
+      # SAST
+      - name: Run SAST (semgrep)
+        id: sast
+        continue-on-error: true  # we collect the result, not fail fast
+        run: |
+          # TODO: replace with actual semgrep invocation
+          # semgrep scan --json --output sast-results.json .
+          echo '{"findings":[],"passed":true}' > sast-results.json
+
+      - name: Sign SAST attestation
+        run: |
+          ./bin/attest sign \
+            --check-type sast \
+            --tool semgrep \
+            --tool-version "$(semgrep --version 2>/dev/null || echo unknown)" \
+            --result sast-results.json \
+            --target-ref "$ARTIFACT_REF" \
+            --subject "$APP_NAME" \
+            --signing-key "${{ secrets.ATTESTATION_SIGNING_KEY }}" \
+            --chain attestation-chain.json
+
+      # SCA
+      - name: Run SCA (trivy)
+        id: sca
+        continue-on-error: true
+        run: |
+          # TODO: replace with actual trivy invocation
+          # trivy fs --format json --output sca-results.json .
+          echo '{"findings":[],"passed":true}' > sca-results.json
+
+      - name: Sign SCA attestation
+        run: |
+          ./bin/attest sign \
+            --check-type sca \
+            --tool trivy \
+            --tool-version "$(trivy --version 2>/dev/null | head -1 || echo unknown)" \
+            --result sca-results.json \
+            --target-ref "$ARTIFACT_REF" \
+            --subject "$APP_NAME" \
+            --signing-key "${{ secrets.ATTESTATION_SIGNING_KEY }}" \
+            --chain attestation-chain.json
+
+      # Config / IaC
+      - name: Run config check (checkov)
+        id: config
+        continue-on-error: true
+        run: |
+          # TODO: replace with actual checkov invocation
+          echo '{"findings":[],"passed":true}' > config-results.json
+
+      - name: Sign config attestation
+        run: |
+          ./bin/attest sign \
+            --check-type config \
+            --tool checkov \
+            --tool-version "$(checkov --version 2>/dev/null || echo unknown)" \
+            --result config-results.json \
+            --target-ref "$ARTIFACT_REF" \
+            --subject "$APP_NAME" \
+            --signing-key "${{ secrets.ATTESTATION_SIGNING_KEY }}" \
+            --chain attestation-chain.json
+
+      # Secret scan
+      - name: Run secret scan (gitleaks)
+        id: secrets
+        continue-on-error: true
+        run: |
+          # TODO: replace with actual gitleaks invocation
+          # gitleaks detect --report-format json --report-path secret-results.json
+          echo '{"findings":[],"passed":true}' > secret-results.json
+
+      - name: Sign secret scan attestation
+        run: |
+          ./bin/attest sign \
+            --check-type secret \
+            --tool gitleaks \
+            --tool-version "$(gitleaks version 2>/dev/null || echo unknown)" \
+            --result secret-results.json \
+            --target-ref "$ARTIFACT_REF" \
+            --subject "$APP_NAME" \
+            --signing-key "${{ secrets.ATTESTATION_SIGNING_KEY }}" \
+            --chain attestation-chain.json
+
+      - name: Verify chain integrity
+        run: |
+          ./bin/verify \
+            --chain attestation-chain.json \
+            --verify-signer "${{ secrets.ATTESTATION_PUBLIC_KEY }}"
+
+      - name: Upload attestation chain
+        id: upload-chain
+        uses: actions/upload-artifact@v4
+        with:
+          name: attestation-chain-${{ github.sha }}
+          path: attestation-chain.json
+          retention-days: 90  # keep chains for audit purposes
+
+  # Deploy gate: verify chain and evaluate policy
+  deploy-gate:
+    needs: security-checks
+    runs-on: ubuntu-latest
+    environment: production  # requires manual approval in GitHub settings
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build gate binary
+        run: |
+          mkdir -p bin
+          go build -o ./bin/gate ./cmd/gate
+
+      - name: Download attestation chain
+        uses: actions/download-artifact@v4
+        with:
+          name: attestation-chain-${{ github.sha }}
+
+      - name: Evaluate deploy gate
+        id: gate
+        run: |
+          ./bin/gate evaluate \
+            --chain attestation-chain.json \
+            --verify-signer "${{ secrets.ATTESTATION_PUBLIC_KEY }}" \
+            --policy .github/policies/deploy.rego \
+            --output gate-decision.json
+
+      - name: Check gate decision
+        run: |
+          ALLOW=$(jq -r '.allow' gate-decision.json)
+          REASONS=$(jq -r '.reasons[]' gate-decision.json)
+          echo "Gate decision: $ALLOW"
+          echo "Reasons: $REASONS"
+          if [ "$ALLOW" != "true" ]; then
+            echo "::error::Deploy gate blocked: $REASONS"
+            exit 1
+          fi
+
+      # Actual deployment (only runs if gate passed)
+      - name: Deploy
+        run: |
+          echo "OK: Attestation chain verified. Deploying $ARTIFACT_REF..."
+          # TODO: add actual deployment steps here
