@@ -231,7 +231,7 @@ jobs:
           go build -o ./release/gate   ./cmd/gate
 
       - name: Download attestation chain
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: attestation-chain-${{ github.sha }}
 
