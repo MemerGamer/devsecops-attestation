@@ -16,6 +16,7 @@ Cryptographically verifiable security decisions in CI/CD pipelines.
 - [Overview](#overview)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
+- [GitHub Actions Setup](#github-actions-setup)
 - [Running Tests](#running-tests)
 - [Documentation](#documentation)
 - [License](#license)
@@ -108,6 +109,37 @@ go run ./cmd/gate evaluate \
 
 Exit code 0 means the gate allows deployment. Exit code 1 means it was blocked
 (chain invalid or policy denied). The `--output` flag writes the full decision JSON.
+
+---
+
+## GitHub Actions Setup
+
+The pipeline requires two repository secrets. Without them, the signing step will fail
+with "signing key must be 64 bytes (128 hex chars), got 0 bytes".
+
+**1. Generate a key pair locally:**
+
+```bash
+go run ./cmd/keygen --out keys/
+```
+
+**2. Add the secrets to your repository:**
+
+Go to your repository on GitHub: **Settings > Secrets and variables > Actions > New repository secret**
+
+| Secret name | Value |
+| --- | --- |
+| `ATTESTATION_SIGNING_KEY` | Contents of `keys/private.hex` |
+| `ATTESTATION_PUBLIC_KEY` | Contents of `keys/public.hex` |
+
+Keep `keys/private.hex` secret and never commit it. The `keys/` directory is already
+in `.gitignore`.
+
+**3. Production environment (optional):**
+
+The `deploy-gate` job targets the `production` environment, which can be configured
+to require manual approval before deployment. Set this up under
+**Settings > Environments > production > Required reviewers**.
 
 ---
 
