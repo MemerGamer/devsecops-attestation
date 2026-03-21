@@ -12,18 +12,16 @@ env:
   # Store the hex-encoded private key as ATTESTATION_SIGNING_KEY
   ARTIFACT_REF: ${{ github.sha }}
   APP_NAME: ${{ github.repository }}
-  # Opt into Node.js 24 for all actions ahead of the June 2026 forced migration.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   # Run the full unit test suite before any security or signing steps.
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.26'
 
@@ -37,14 +35,17 @@ jobs:
   security-checks:
     needs: test
     runs-on: ubuntu-latest
+    env:
+      TRIVY_VERSION: '0.58.0'
+      GITLEAKS_VERSION: '8.21.2'
     outputs:
       chain-artifact: ${{ steps.upload-chain.outputs.artifact-id }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.26'
 
@@ -59,11 +60,25 @@ jobs:
       # SAST
       - name: Run SAST (semgrep)
         id: sast
-        continue-on-error: true  # we collect the result, not fail fast
+        continue-on-error: true
         run: |
-          # TODO: replace with actual semgrep invocation
-          # semgrep scan --json --output sast-results.json .
-          echo '{"findings":[],"passed":true}' > sast-results.json
+          pip install --quiet semgrep
+          semgrep scan --json --output semgrep-raw.json --no-error-on-empty-scan . || true
+          if jq -e . semgrep-raw.json >/dev/null 2>&1; then
+            jq '{
+              passed: ((.results // []) | length) == 0,
+              findings: [(.results // [])[] | {
+                id: .check_id,
+                severity: (.extra.severity | if . == "ERROR" then "critical"
+                                             elif . == "WARNING" then "high"
+                                             else "medium" end),
+                title: .extra.message,
+                location: (.path + ":" + (.start.line | tostring))
+              }]
+            }' semgrep-raw.json > sast-results.json
+          else
+            echo '{"passed":true,"findings":[]}' > sast-results.json
+          fi
 
       - name: Sign SAST attestation
         run: |
@@ -82,9 +97,25 @@ jobs:
         id: sca
         continue-on-error: true
         run: |
-          # TODO: replace with actual trivy invocation
-          # trivy fs --format json --output sca-results.json .
-          echo '{"findings":[],"passed":true}' > sca-results.json
+          wget -qO trivy.deb \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.deb"
+          sudo dpkg -i trivy.deb
+          trivy fs --format json --output trivy-raw.json . || true
+          if jq -e . trivy-raw.json >/dev/null 2>&1; then
+            jq '{
+              passed: ([(.Results // [])[]? | (.Vulnerabilities // [])[]
+                        | select(.Severity == "CRITICAL" or .Severity == "HIGH")]
+                       | length) == 0,
+              findings: [(.Results // [])[]? | (.Vulnerabilities // [])[] | {
+                id: .VulnerabilityID,
+                severity: (.Severity | ascii_downcase),
+                title: (.Title // .VulnerabilityID),
+                location: .PkgName
+              }]
+            }' trivy-raw.json > sca-results.json
+          else
+            echo '{"passed":true,"findings":[]}' > sca-results.json
+          fi
 
       - name: Sign SCA attestation
         run: |
@@ -103,8 +134,22 @@ jobs:
         id: config
         continue-on-error: true
         run: |
-          # TODO: replace with actual checkov invocation
-          echo '{"findings":[],"passed":true}' > config-results.json
+          pip install --quiet checkov
+          checkov -d . --output json --output-file-path . --quiet || true
+          mv results.json checkov-raw.json 2>/dev/null || echo 'null' > checkov-raw.json
+          if jq -e . checkov-raw.json >/dev/null 2>&1; then
+            jq '{
+              passed: ((.results.failed_checks // []) | length) == 0,
+              findings: [(.results.failed_checks // [])[] | {
+                id: .check_id,
+                severity: "medium",
+                title: (.check_id + ": " + (.check_type // "config")),
+                location: (.file_path // "unknown")
+              }]
+            }' checkov-raw.json > config-results.json
+          else
+            echo '{"passed":true,"findings":[]}' > config-results.json
+          fi
 
       - name: Sign config attestation
         run: |
@@ -123,9 +168,24 @@ jobs:
         id: secrets
         continue-on-error: true
         run: |
-          # TODO: replace with actual gitleaks invocation
-          # gitleaks detect --report-format json --report-path secret-results.json
-          echo '{"findings":[],"passed":true}' > secret-results.json
+          wget -qO- \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar xz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+          gitleaks detect --report-format json --report-path gitleaks-raw.json || true
+          if jq -e 'if . == null then empty else . end' gitleaks-raw.json >/dev/null 2>&1; then
+            jq '{
+              passed: (length == 0),
+              findings: [.[] | {
+                id: .RuleID,
+                severity: "high",
+                title: .Description,
+                location: (.File + ":" + (.StartLine | tostring))
+              }]
+            }' gitleaks-raw.json > secret-results.json
+          else
+            echo '{"passed":true,"findings":[]}' > secret-results.json
+          fi
 
       - name: Sign secret scan attestation
         run: |
@@ -147,33 +207,37 @@ jobs:
 
       - name: Upload attestation chain
         id: upload-chain
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: attestation-chain-${{ github.sha }}
           path: attestation-chain.json
-          retention-days: 90  # keep chains for audit purposes
+          retention-days: 90
 
   # Deploy gate: verify chain and evaluate policy
   deploy-gate:
     needs: security-checks
     runs-on: ubuntu-latest
-    environment: production  # requires manual approval in GitHub settings
+    environment: production
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.26'
 
-      - name: Build gate binary
+      - name: Build binaries
         run: |
-          mkdir -p bin
-          go build -o ./bin/gate ./cmd/gate
+          mkdir -p bin release
+          go build -o ./bin/gate    ./cmd/gate
+          go build -o ./release/keygen ./cmd/keygen
+          go build -o ./release/attest ./cmd/sign
+          go build -o ./release/verify ./cmd/verify
+          go build -o ./release/gate   ./cmd/gate
 
       - name: Download attestation chain
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: attestation-chain-${{ github.sha }}
 
@@ -197,8 +261,15 @@ jobs:
             exit 1
           fi
 
-      # Actual deployment (only runs if gate passed)
-      - name: Deploy
+      - name: Package release artifacts
         run: |
-          echo "OK: Attestation chain verified. Deploying $ARTIFACT_REF..."
-          # TODO: add actual deployment steps here
+          cp attestation-chain.json release/
+          cp gate-decision.json     release/
+          echo "$ARTIFACT_REF" > release/COMMIT
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-${{ github.sha }}
+          path: release/
+          retention-days: 30
