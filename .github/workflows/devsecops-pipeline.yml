@@ -37,17 +37,23 @@ jobs:
 
       - name: Run unit tests with coverage
         run: |
-          go test -coverprofile=coverage.out ./...
-          go tool cover -func=coverage.out | tail -1
+          go test -coverprofile=coverage.txt ./...
+          go tool cover -func=coverage.txt | tail -1
 
       - name: Run unit tests with race detector
         run: go test -race ./...
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.txt
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ github.sha }}
-          path: coverage.out
+          path: coverage.txt
           retention-days: 7
 
   # Phase 1 + 2: Run security checks, sign each result, build chain
