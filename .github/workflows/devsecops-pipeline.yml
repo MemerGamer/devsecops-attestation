@@ -12,6 +12,8 @@ env:
   # Store the hex-encoded private key as ATTESTATION_SIGNING_KEY
   ARTIFACT_REF: ${{ github.sha }}
   APP_NAME: ${{ github.repository }}
+  # Opt into Node.js 24 for all actions ahead of the June 2026 forced migration.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   # Run the full unit test suite before any security or signing steps.
