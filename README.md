@@ -104,8 +104,7 @@ go run ./cmd/sign \
   --target-ref $(git rev-parse HEAD) \
   --subject myapp \
   --signing-key $(cat keys/private.hex) \
-  --chain-file chain.json \
-  --out chain.json
+  --chain chain.json
 ```
 
 ### Verify and evaluate the gate
@@ -123,14 +122,16 @@ go run ./cmd/gate evaluate \
 
 ### Phase 1 — Sign + Verify (MSc core)
 - [x] `internal/crypto/signer.go` — Ed25519 sign, verify, digest
-- [ ] `cmd/sign` — CLI wrapper
-- [ ] `cmd/keygen` — key generation utility
-- [ ] Unit tests: tamper detection, key mismatch
+- [x] `cmd/sign` — CLI wrapper
+- [x] `cmd/keygen` — key generation utility
+- [x] Unit tests: tamper detection, key mismatch
 
 ### Phase 2 — Attestation Chains (MSc core)
 - [x] `internal/attestation/chain.go` — chain building + verification
-- [ ] `cmd/verify` — CLI chain verifier
-- [ ] Integration test: full pipeline → chain → gate
+- [x] `cmd/verify` — CLI chain verifier
+- [x] `cmd/gate` — deployment gate with OPA policy evaluation
+- [x] Unit tests: all tamper attack vectors covered
+- [ ] Integration test: full pipeline to chain to gate
 - [ ] Transparency log submission (Rekor)
 
 ### Phase 3 — Threshold Signatures (MSc stretch / PhD seed)
