@@ -44,7 +44,7 @@ produce an ALLOW or BLOCK decision.
 
 ### Generate a key pair
 
-```bash
+```shell
 go run ./cmd/keygen --out keys/
 # Writes keys/private.hex and keys/public.hex
 # Store private.hex in GitHub Actions secrets as ATTESTATION_SIGNING_KEY
@@ -69,7 +69,7 @@ Findings (optional) have the shape:
 
 Sign all three checks:
 
-```bash
+```shell
 go run ./cmd/sign \
   --check-type sast \
   --tool semgrep \
@@ -100,7 +100,7 @@ go run ./cmd/sign \
 
 ### Verify and evaluate the gate
 
-```bash
+```shell
 go run ./cmd/gate evaluate \
   --chain chain.json \
   --verify-signer $(cat keys/public.hex) \
@@ -119,7 +119,7 @@ with "signing key must be 64 bytes (128 hex chars), got 0 bytes".
 
 **1. Generate a key pair locally:**
 
-```bash
+```shell
 go run ./cmd/keygen --out keys/
 ```
 
@@ -147,19 +147,19 @@ to require manual approval before deployment. Set this up under
 
 ### Unit tests
 
-```bash
+```shell
 go test ./...
 ```
 
 ### With race detector
 
-```bash
+```shell
 go test -race ./...
 ```
 
 ### Integration tests
 
-```bash
+```shell
 go test -tags integration ./test/integration/...
 ```
 
