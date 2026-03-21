@@ -210,6 +210,49 @@ func TestSimpleAggregatorAggregate(t *testing.T) {
 	})
 }
 
+func TestVerify(t *testing.T) {
+	a := newTestAttestation(t)
+	kp1, kp2 := mustKeyPair(t), mustKeyPair(t)
+	p1 := threshold.NewSimpleParticipant("alice", kp1)
+	p2 := threshold.NewSimpleParticipant("bob", kp2)
+	ps1, _ := p1.Sign(a)
+	ps2, _ := p2.Sign(a)
+	cfg := threshold.ThresholdConfig{Threshold: 2, Participants: 2}
+
+	t.Run("valid threshold passes", func(t *testing.T) {
+		ta := &threshold.ThresholdAttestation{
+			Attestation:       *a,
+			Config:            cfg,
+			PartialSignatures: []threshold.PartialSignature{*ps1, *ps2},
+		}
+		if err := threshold.Verify(ta); err != nil {
+			t.Errorf("Verify() unexpected error = %v", err)
+		}
+	})
+
+	t.Run("invalid config returns error", func(t *testing.T) {
+		ta := &threshold.ThresholdAttestation{
+			Attestation:       *a,
+			Config:            threshold.ThresholdConfig{Threshold: 0, Participants: 2},
+			PartialSignatures: []threshold.PartialSignature{*ps1, *ps2},
+		}
+		if err := threshold.Verify(ta); err == nil {
+			t.Error("Verify() expected error for invalid config, got nil")
+		}
+	})
+
+	t.Run("threshold not met returns ErrThresholdNotMet", func(t *testing.T) {
+		ta := &threshold.ThresholdAttestation{
+			Attestation:       *a,
+			Config:            cfg,
+			PartialSignatures: []threshold.PartialSignature{*ps1}, // only 1 of 2 required
+		}
+		if err := threshold.Verify(ta); err != threshold.ErrThresholdNotMet {
+			t.Errorf("Verify() error = %v, want ErrThresholdNotMet", err)
+		}
+	})
+}
+
 func TestVerifyThreshold(t *testing.T) {
 	cfg := threshold.ThresholdConfig{Threshold: 2, Participants: 3}
 	a := newTestAttestation(t)

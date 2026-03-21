@@ -11,6 +11,25 @@ import (
 	"github.com/MemerGamer/devsecops-attestation/internal/crypto"
 )
 
+// TestRunSignViaCobraExecute exercises the cobra RunE closure by calling
+// rootCmd.Execute(), which is the only path that covers the RunE lambda body.
+func TestRunSignViaCobraExecute(t *testing.T) {
+	dir := t.TempDir()
+	chainPath := filepath.Join(dir, "chain.json")
+	privHex, _ := generateTestKey(t)
+
+	rootCmd.SetArgs([]string{
+		"--check-type=sast", "--tool=semgrep",
+		"--result=testdata/sast-result.json",
+		"--target-ref=abc123", "--subject=myapp",
+		"--signing-key=" + privHex,
+		"--chain=" + chainPath,
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rootCmd.Execute() error = %v", err)
+	}
+}
+
 func generateTestKey(t testing.TB) (privHex, pubHex string) {
 	t.Helper()
 	kp, err := crypto.GenerateKeyPair()
@@ -166,6 +185,111 @@ func TestRunSign(t *testing.T) {
 		}
 	})
 
+	t.Run("succeeds with check type config", func(t *testing.T) {
+		dir := t.TempDir()
+		chainPath := filepath.Join(dir, "chain.json")
+		privHex, _ := generateTestKey(t)
+
+		err := runSign(ctx, signFlags{
+			checkType:  "config",
+			tool:       "checkov",
+			resultFile: resultFile,
+			targetRef:  "abc123",
+			subject:    "myapp",
+			signingKey: privHex,
+			chain:      chainPath,
+		})
+		if err != nil {
+			t.Fatalf("runSign() with checkType=config error = %v", err)
+		}
+	})
+
+	t.Run("succeeds with check type secret", func(t *testing.T) {
+		dir := t.TempDir()
+		chainPath := filepath.Join(dir, "chain.json")
+		privHex, _ := generateTestKey(t)
+
+		err := runSign(ctx, signFlags{
+			checkType:  "secret",
+			tool:       "gitleaks",
+			resultFile: resultFile,
+			targetRef:  "abc123",
+			subject:    "myapp",
+			signingKey: privHex,
+			chain:      chainPath,
+		})
+		if err != nil {
+			t.Fatalf("runSign() with checkType=secret error = %v", err)
+		}
+	})
+
+	t.Run("fails on invalid JSON in result file", func(t *testing.T) {
+		dir := t.TempDir()
+		badResult := filepath.Join(dir, "bad-result.json")
+		if err := os.WriteFile(badResult, []byte("not valid json {{{"), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		privHex, _ := generateTestKey(t)
+
+		err := runSign(ctx, signFlags{
+			checkType:  "sast",
+			tool:       "semgrep",
+			resultFile: badResult,
+			targetRef:  "abc123",
+			subject:    "myapp",
+			signingKey: privHex,
+			chain:      filepath.Join(dir, "chain.json"),
+		})
+		if err == nil {
+			t.Error("runSign() expected error for invalid JSON result, got nil")
+		}
+	})
+
+	t.Run("fails if chain file path is a directory", func(t *testing.T) {
+		dir := t.TempDir()
+		privHex, _ := generateTestKey(t)
+		// Passing a directory as --chain causes LoadChain to return a non-ErrNotExist error.
+		err := runSign(ctx, signFlags{
+			checkType:  "sast",
+			tool:       "semgrep",
+			resultFile: resultFile,
+			targetRef:  "abc123",
+			subject:    "myapp",
+			signingKey: privHex,
+			chain:      dir,
+		})
+		if err == nil {
+			t.Error("runSign() expected error when chain path is a directory, got nil")
+		}
+	})
+
+	t.Run("fails if output path is unwritable", func(t *testing.T) {
+		dir := t.TempDir()
+		privHex, _ := generateTestKey(t)
+		roDir := filepath.Join(dir, "readonly")
+		if err := os.MkdirAll(roDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.Chmod(roDir, 0o444); err != nil {
+			t.Fatalf("Chmod: %v", err)
+		}
+		t.Cleanup(func() { os.Chmod(roDir, 0o755) }) //nolint
+
+		err := runSign(ctx, signFlags{
+			checkType:  "sast",
+			tool:       "semgrep",
+			resultFile: resultFile,
+			targetRef:  "abc123",
+			subject:    "myapp",
+			signingKey: privHex,
+			chain:      filepath.Join(dir, "chain.json"),
+			out:        filepath.Join(roDir, "chain.json"),
+		})
+		if err == nil {
+			t.Error("runSign() expected error for unwritable output path, got nil")
+		}
+	})
+
 	t.Run("writes to --out when specified", func(t *testing.T) {
 		dir := t.TempDir()
 		chainPath := filepath.Join(dir, "chain.json")
@@ -191,6 +315,38 @@ func TestRunSign(t *testing.T) {
 		}
 		if _, err := os.Stat(chainPath); err == nil {
 			t.Error("--chain file should not have been created when --out is set")
+		}
+	})
+
+	t.Run("result file with omitted findings field initializes to empty slice", func(t *testing.T) {
+		dir := t.TempDir()
+		// JSON with no "findings" key: input.Findings unmarshals to nil,
+		// triggering the nil-guard that sets it to []types.Finding{}.
+		noFindingsFile := filepath.Join(dir, "no-findings.json")
+		if err := os.WriteFile(noFindingsFile, []byte(`{"passed": true, "passed_count": 0}`), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		chainPath := filepath.Join(dir, "chain.json")
+		privHex, _ := generateTestKey(t)
+
+		err := runSign(ctx, signFlags{
+			checkType:  "sast",
+			tool:       "semgrep",
+			resultFile: noFindingsFile,
+			targetRef:  "abc123",
+			subject:    "myapp",
+			signingKey: privHex,
+			chain:      chainPath,
+		})
+		if err != nil {
+			t.Fatalf("runSign() error = %v", err)
+		}
+		chain, err := attestation.LoadChain(chainPath)
+		if err != nil {
+			t.Fatalf("LoadChain(): %v", err)
+		}
+		if chain[0].Result.Findings == nil {
+			t.Error("Findings should be a non-nil empty slice, not nil")
 		}
 	})
 }

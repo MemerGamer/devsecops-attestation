@@ -21,9 +21,12 @@ import (
 	"github.com/MemerGamer/devsecops-attestation/pkg/types"
 )
 
+// osExit is a variable so tests can intercept os.Exit calls.
+var osExit = os.Exit
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		osExit(1)
 	}
 }
 
@@ -70,14 +73,16 @@ func runEvaluate(ctx context.Context, f evaluateFlags) error {
 	// Policy must never run on an unverified chain.
 	if _, chainErr := attestation.VerifyChain(chain); chainErr != nil {
 		fmt.Fprintf(os.Stderr, "chain verification failed: %v\n", chainErr)
-		os.Exit(1)
+		osExit(1)
+		return nil
 	}
 
 	// Optional signer verification.
 	if f.verifySigner != "" {
 		if err := verifySigner(chain, f.verifySigner); err != nil {
 			fmt.Fprintf(os.Stderr, "signer verification failed: %v\n", err)
-			os.Exit(1)
+			osExit(1)
+			return nil
 		}
 	}
 
@@ -116,7 +121,8 @@ func runEvaluate(ctx context.Context, f evaluateFlags) error {
 		for _, r := range decision.Reasons {
 			fmt.Fprintf(os.Stderr, "  - %s\n", r)
 		}
-		os.Exit(1)
+		osExit(1)
+		return nil
 	}
 
 	return nil

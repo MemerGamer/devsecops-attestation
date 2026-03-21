@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,55 @@ func newTestAttestation(t testing.TB) *types.Attestation {
 		},
 		Timestamp:      time.Date(2024, 1, 15, 10, 1, 0, 0, time.UTC),
 		PreviousDigest: "",
+	}
+}
+
+func TestCanonicalPayload(t *testing.T) {
+	a := newTestAttestation(t)
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair() error = %v", err)
+	}
+	if err := Sign(a, kp); err != nil {
+		t.Fatalf("Sign() error = %v", err)
+	}
+
+	payload, err := CanonicalPayload(a)
+	if err != nil {
+		t.Fatalf("CanonicalPayload() error = %v", err)
+	}
+	if len(payload) == 0 {
+		t.Error("CanonicalPayload() returned empty bytes")
+	}
+
+	// Verify the result is valid JSON.
+	var m map[string]interface{}
+	if err := json.Unmarshal(payload, &m); err != nil {
+		t.Fatalf("CanonicalPayload() returned invalid JSON: %v", err)
+	}
+
+	// Signature and SignerPublicKey must be excluded so they can be set after signing.
+	if _, ok := m["signature"]; ok {
+		t.Error("CanonicalPayload() must not include 'signature' field")
+	}
+	if _, ok := m["signer_public_key"]; ok {
+		t.Error("CanonicalPayload() must not include 'signer_public_key' field")
+	}
+
+	// Core fields must be present.
+	for _, field := range []string{"id", "subject", "result", "timestamp"} {
+		if _, ok := m[field]; !ok {
+			t.Errorf("CanonicalPayload() missing expected field %q", field)
+		}
+	}
+
+	// Calling CanonicalPayload twice on the same attestation must produce identical bytes.
+	payload2, err := CanonicalPayload(a)
+	if err != nil {
+		t.Fatalf("second CanonicalPayload() error = %v", err)
+	}
+	if !bytes.Equal(payload, payload2) {
+		t.Error("CanonicalPayload() is not deterministic")
 	}
 }
 

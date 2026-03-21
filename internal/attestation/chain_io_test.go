@@ -56,6 +56,31 @@ func TestLoadChain(t *testing.T) {
 			t.Error("LoadChain() expected error for invalid JSON, got nil")
 		}
 	})
+
+	t.Run("directory path returns read error (not ErrNotExist)", func(t *testing.T) {
+		dir := t.TempDir()
+		// A directory is not a file; ReadFile on a directory returns an error that is not ErrNotExist.
+		_, err := LoadChain(dir)
+		if err == nil {
+			t.Error("LoadChain() expected error when path is a directory, got nil")
+		}
+	})
+}
+
+func TestSaveChainErrors(t *testing.T) {
+	t.Run("write error returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		// Make the directory read-only so WriteFile inside it fails.
+		if err := os.Chmod(dir, 0o444); err != nil {
+			t.Fatalf("Chmod error = %v", err)
+		}
+		t.Cleanup(func() { os.Chmod(dir, 0o755) }) //nolint
+		path := filepath.Join(dir, "chain.json")
+		err := SaveChain(path, buildTestChain(t, 1))
+		if err == nil {
+			t.Error("SaveChain() expected error for read-only directory, got nil")
+		}
+	})
 }
 
 func TestSaveAndLoadChain(t *testing.T) {

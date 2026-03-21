@@ -14,9 +14,12 @@ import (
 	"github.com/MemerGamer/devsecops-attestation/internal/attestation"
 )
 
+// osExit is a variable so tests can intercept os.Exit calls.
+var osExit = os.Exit
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		osExit(1)
 	}
 }
 
@@ -130,7 +133,8 @@ func runVerify(f verifyFlags) error {
 
 	if chainErr != nil {
 		fmt.Fprintf(os.Stderr, "chain verification failed: %v\n", chainErr)
-		os.Exit(1)
+		osExit(1)
+		return nil
 	}
 	return nil
 }

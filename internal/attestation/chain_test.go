@@ -324,6 +324,24 @@ func TestVerifyChain(t *testing.T) {
 		}
 	})
 
+	t.Run("short PreviousDigest shows without truncation in error", func(t *testing.T) {
+		chain, _ := buildChain(t, 2)
+		// Set a short (<=12 char) PreviousDigest to exercise the non-truncation branch.
+		chain[1].PreviousDigest = "abc"
+
+		_, err := VerifyChain(chain)
+		if err == nil {
+			t.Fatal("VerifyChain() expected error for wrong PreviousDigest")
+		}
+		// The short digest must appear verbatim in the error - no trailing "..."
+		if !strings.Contains(err.Error(), `"abc"`) {
+			t.Errorf("error %q does not contain short digest verbatim", err.Error())
+		}
+		if strings.Contains(err.Error(), "abc...") {
+			t.Error("short digest must not be truncated with '...'")
+		}
+	})
+
 	t.Run("error message references position", func(t *testing.T) {
 		chain, _ := buildChain(t, 3)
 		chain[1].Result.Passed = !chain[1].Result.Passed

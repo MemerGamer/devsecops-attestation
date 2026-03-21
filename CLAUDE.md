@@ -130,3 +130,22 @@ as the MSc contribution. FROST and network gossip are PhD territory.
   must enforce this ordering -- policy evaluation on an unverified chain is a security defect.
 - Before Phase 6: export `CanonicalPayload` (capital C) from `internal/crypto` so the threshold
   package can call it without replicating the canonical JSON logic.
+
+## Test Coverage
+
+Current total coverage is approximately 93%. The remaining uncovered statements (~7%) are all
+justified unreachable defensive error paths:
+
+| Pattern | Location | Why unreachable |
+|---------|----------|-----------------|
+| `main()` bodies | all 4 CLIs | Process entry points - only testable via subprocess |
+| `ed25519.GenerateKey` error | `internal/crypto` `GenerateKeyPair` | Never fails with `crypto/rand.Reader` on any supported OS |
+| `json.Marshal` / `json.MarshalIndent` errors | `chain_io`, `crypto.Digest`, `cmd/gate`, `cmd/verify` | All marshaled types are concrete structs with no custom marshaler that can fail |
+| `canonicalPayload` errors | `crypto.Sign`, `crypto.Verify`, `threshold.Sign`, `threshold.VerifyThreshold` | Same reason - marshaling always succeeds |
+| `crypto.Digest`/`crypto.Sign` errors | `attestation.Add`, `attestation.VerifyChain` | Calls with concrete `*types.Attestation` values which always marshal |
+| `crypto.KeyPairFromBytes` error | `cmd/sign` `runSign` | Caller always passes exactly 32 + 64 validated bytes |
+| `denyQuery.Eval` error | `internal/policy` `Evaluate` | Both queries compile the same module; if one fails both fail - the second never runs independently |
+
+To add coverage for a new feature, write tests before or alongside the implementation. For CLI
+commands, test both the `runX()` function directly (fast, isolated) and via `rootCmd.Execute()`
+(covers cobra RunE lambda, serves as a light integration test).

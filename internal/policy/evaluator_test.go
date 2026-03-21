@@ -220,6 +220,51 @@ func TestEvaluate(t *testing.T) {
 	}
 }
 
+func TestEvaluateEdgeCases(t *testing.T) {
+	ctx := context.Background()
+	input := buildInput([]types.Attestation{})
+
+	t.Run("empty policy returns allow=false when no allow rule defined", func(t *testing.T) {
+		// The empty policy defines no allow rule so allowRS is empty,
+		// covering the len(allowRS)==0 branch (line 130).
+		policyPath := filepath.Join("testdata", "empty.rego")
+		decision, err := policy.EvaluateFromFile(ctx, policyPath, input)
+		if err != nil {
+			t.Fatalf("EvaluateFromFile() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false for empty policy, got true")
+		}
+	})
+
+	t.Run("deny_reasons as non-map scalar is handled without panic", func(t *testing.T) {
+		// This policy returns deny_reasons as a string (not a set/map), covering
+		// the ok=false branch of the type assertion on line 141.
+		policyPath := filepath.Join("testdata", "deny-reasons-string.rego")
+		decision, err := policy.EvaluateFromFile(ctx, policyPath, input)
+		if err != nil {
+			t.Fatalf("EvaluateFromFile() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false for deny policy, got true")
+		}
+		// No reasons should be collected when deny_reasons is not a map/set.
+		if len(decision.Reasons) != 0 {
+			t.Errorf("expected no reasons for non-map deny_reasons, got %v", decision.Reasons)
+		}
+	})
+
+	t.Run("invalid Rego syntax returns eval error", func(t *testing.T) {
+		// A syntactically invalid policy causes allowQuery.Eval to return an error,
+		// covering lines 126-128.
+		e := policy.NewEvaluator("this is not valid rego }{")
+		_, err := e.Evaluate(ctx, input)
+		if err == nil {
+			t.Error("Evaluate() expected error for invalid Rego, got nil")
+		}
+	})
+}
+
 func TestEvaluateFromFile(t *testing.T) {
 	ctx := context.Background()
 

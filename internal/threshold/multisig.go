@@ -123,8 +123,7 @@ func VerifyThreshold(ta *ThresholdAttestation) error {
 			return fmt.Errorf("participant %s: invalid signature length %d", ps.ParticipantID, len(ps.Partial))
 		}
 
-		pub := ed25519.PublicKey(ps.PublicKey)
-		if !ed25519.Verify(pub, payload, ps.Partial) {
+		if !verifyPartialSignature(ps, payload) {
 			return fmt.Errorf("participant %s: signature verification failed", ps.ParticipantID)
 		}
 		valid++
@@ -137,14 +136,9 @@ func VerifyThreshold(ta *ThresholdAttestation) error {
 }
 
 // verifyPartialSignature checks one PartialSignature against the given payload.
+// Callers must validate key and signature lengths before calling this function.
 // This is an internal helper used by VerifyThreshold.
 func verifyPartialSignature(ps PartialSignature, payload []byte) bool {
-	if len(ps.PublicKey) != ed25519.PublicKeySize {
-		return false
-	}
-	if len(ps.Partial) != ed25519.SignatureSize {
-		return false
-	}
 	return ed25519.Verify(ed25519.PublicKey(ps.PublicKey), payload, ps.Partial)
 }
 

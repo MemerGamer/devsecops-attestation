@@ -140,4 +140,51 @@ func TestRunKeygen(t *testing.T) {
 			t.Errorf("second runKeygen() with --force error = %v", err)
 		}
 	})
+
+	t.Run("fails when output directory is read-only", func(t *testing.T) {
+		dir := t.TempDir()
+		roDir := filepath.Join(dir, "readonly")
+		if err := os.MkdirAll(roDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.Chmod(roDir, 0o444); err != nil {
+			t.Fatalf("Chmod: %v", err)
+		}
+		t.Cleanup(func() { os.Chmod(roDir, 0o755) }) //nolint
+
+		err := runKeygen(keygenFlags{out: roDir, force: true})
+		if err == nil {
+			t.Error("runKeygen() expected error for read-only directory, got nil")
+		}
+	})
+
+	t.Run("fails writing public key when public.hex is read-only", func(t *testing.T) {
+		dir := t.TempDir()
+		// Create both key files with normal permissions first.
+		if err := runKeygen(keygenFlags{out: dir}); err != nil {
+			t.Fatalf("initial runKeygen() error = %v", err)
+		}
+		// Make only public.hex read-only. The directory and private.hex remain writable
+		// so the private key write succeeds, but the public key write fails.
+		pubPath := filepath.Join(dir, "public.hex")
+		if err := os.Chmod(pubPath, 0o444); err != nil {
+			t.Fatalf("Chmod: %v", err)
+		}
+		t.Cleanup(func() { os.Chmod(pubPath, 0o644) }) //nolint
+
+		err := runKeygen(keygenFlags{out: dir, force: true})
+		if err == nil {
+			t.Error("runKeygen() expected error when public.hex is read-only, got nil")
+		}
+	})
+}
+
+// TestRunKeygenViaCobraExecute exercises the cobra RunE closure by calling
+// rootCmd.Execute(), which is the only path that covers the RunE lambda body.
+func TestRunKeygenViaCobraExecute(t *testing.T) {
+	dir := t.TempDir()
+	rootCmd.SetArgs([]string{"--out", dir})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rootCmd.Execute() error = %v", err)
+	}
 }
