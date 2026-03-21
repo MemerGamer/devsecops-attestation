@@ -201,7 +201,7 @@ jobs:
 
       - name: Upload attestation chain
         id: upload-chain
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: attestation-chain-${{ github.sha }}
           path: attestation-chain.json
@@ -262,7 +262,7 @@ jobs:
           echo "$ARTIFACT_REF" > release/COMMIT
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ github.sha }}
           path: release/
