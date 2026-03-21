@@ -17,5 +17,6 @@
 ## Phase 3 — Threshold Signatures (MSc stretch / PhD seed)
 - [x] `internal/threshold/threshold.go` — interfaces and types
 - [x] Simple t-of-n: collect t independent Ed25519 signatures (`internal/threshold/multisig.go`)
-- [ ] FROST threshold scheme (proper single group signature)
-- [ ] PhD: distribute over network with `GossipProtocol`
+- [x] `VerifyThreshold` — verify t-of-n partial signatures, deduplicated and sorted by participant ID
+- [ ] FROST threshold scheme (proper single group signature) — PhD scope
+- [ ] Distribute over network with `GossipProtocol` — PhD scope

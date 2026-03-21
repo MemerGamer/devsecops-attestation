@@ -171,6 +171,7 @@ including tamper-detection attack simulations.
 ## Documentation
 
 - [Architecture](docs/architecture.md) - system design, data flow diagram, and cryptographic guarantees
+- [Architecture diagram](docs/devsecops_attestation_architecture.svg) - visual overview
 - [Project Structure](docs/structure.md) - package layout, responsibilities, and key design decisions
 - [Implementation Plan](docs/implementation-plan.md) - development phases and current status
 - [PhD Extension Path](docs/phd-extension.md) - planned research extensions beyond the MSc scope

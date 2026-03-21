@@ -2,43 +2,49 @@
 
 ## System Design
 
+![Architecture diagram](./devsecops_attestation_architecture.svg)
+
 ```mermaid
 flowchart TB
     subgraph CI["CI/CD Pipeline"]
         SAST["SAST scan"]
         SCA["SCA scan"]
         CFG["Config"]
+        SEC["Secret scan"]
     end
 
     subgraph AT["Attestations"]
         A1["Attestation₁"]
         A2["Attestation₂"]
         A3["Attestation₃"]
+        A4["Attestation₄"]
     end
 
-    subgraph TR["Trust Infrastructure"]
-        Rekor["Transparency Log (Rekor)"]
-        KS["Key Store (per-actor keys)"]
+    subgraph KS["Key Store"]
+        K["Ed25519 key pair (per pipeline)"]
     end
 
     SAST -->|sign| A1
     SCA -->|sign| A2
     CFG -->|sign| A3
+    SEC -->|sign| A4
 
-    KS -.->|per-actor keys| SAST
-    KS -.->|per-actor keys| SCA
-    KS -.->|per-actor keys| CFG
-
-    A1 --> Rekor
-    A2 --> Rekor
-    A3 --> Rekor
+    K -.->|signs| SAST
+    K -.->|signs| SCA
+    K -.->|signs| CFG
+    K -.->|signs| SEC
 
     A1 --> PV["Policy Verifier (OPA + chain check)"]
     A2 --> PV
     A3 --> PV
+    A4 --> PV
     PV --> DG["Deploy Gate"]
     DG --> OUT["ALLOW / BLOCK"]
 ```
+
+> **Note:** Transparency log integration (Rekor/Sigstore) is a planned PhD-phase
+> extension. The current implementation stores the attestation chain as a local JSON
+> file uploaded as a GitHub Actions artifact.
 
 Each attestation is an Ed25519-signed JSON envelope. Attestations are chained:
 each one includes the SHA-256 digest of the previous, making insertion, deletion,

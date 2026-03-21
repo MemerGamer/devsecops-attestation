@@ -31,6 +31,9 @@ flowchart TB
 
     GH --> GW["workflows/ — GitHub Actions pipeline"]
     GH --> GP["policies/ — Rego policy files"]
+
+    R --> TEST["test/"]
+    TEST --> TI["integration/ — end-to-end pipeline tests (build tag: integration)"]
 ```
 
 ## Package Responsibilities
@@ -41,7 +44,8 @@ flowchart TB
 | `crypto` | `internal/crypto/` | Ed25519 key generation, signing, verification, SHA-256 digest |
 | `attestation` | `internal/attestation/` | Chain building (`Chain.Add`) and verification (`VerifyChain`) |
 | `policy` | `internal/policy/` | OPA/Rego policy evaluation and `EvaluateFromFile` |
-| `threshold` | `internal/threshold/` | t-of-n multisig interfaces; simple Ed25519 multisig implementation |
+| `threshold` | `internal/threshold/` | t-of-n multisig interfaces; `SimpleParticipant` / `SimpleAggregator` (Ed25519); `VerifyThreshold` |
+| `integration` | `test/integration/` | End-to-end pipeline tests, run with `-tags integration` |
 
 ## CLI Binaries
 
