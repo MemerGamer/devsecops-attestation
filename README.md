@@ -2,7 +2,7 @@
 
 ![Go version](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-passing-brightgreen)
+[![DevSecOps Attested Pipeline](https://github.com/MemerGamer/devsecops-attestation/actions/workflows/devsecops-pipeline.yml/badge.svg)](https://github.com/MemerGamer/devsecops-attestation/actions/workflows/devsecops-pipeline.yml)
 
 Cryptographically verifiable security decisions in CI/CD pipelines.
 
