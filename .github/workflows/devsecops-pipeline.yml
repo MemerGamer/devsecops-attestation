@@ -25,16 +25,36 @@ jobs:
         with:
           go-version: '1.26'
 
-      - name: Run unit tests
-        run: go test ./...
+      - name: Cache Go modules and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Run unit tests with coverage
+        run: |
+          go test -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tail -1
 
       - name: Run unit tests with race detector
         run: go test -race ./...
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ github.sha }}
+          path: coverage.out
+          retention-days: 7
 
   # Phase 1 + 2: Run security checks, sign each result, build chain
   security-checks:
     needs: test
     runs-on: ubuntu-latest
+    if: "github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'"
     env:
       GITLEAKS_VERSION: '8.21.2'
     outputs:
@@ -47,6 +67,16 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: '1.26'
+
+      - name: Cache Go modules and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
       - name: Build attestation tooling
         run: |
@@ -101,9 +131,9 @@ jobs:
           trivy fs --format json --output trivy-raw.json . || true
           if jq -e . trivy-raw.json >/dev/null 2>&1; then
             jq '{
-              passed: ([(.Results // [])[]? | (.Vulnerabilities // [])[]
-                        | select(.Severity == "CRITICAL" or .Severity == "HIGH")]
-                       | length) == 0,
+              passed: (([(.Results // [])[]? | (.Vulnerabilities // [])[]
+                         | select(.Severity == "CRITICAL" or .Severity == "HIGH")]
+                        | length) == 0),
               findings: [(.Results // [])[]? | (.Vulnerabilities // [])[] | {
                 id: .VulnerabilityID,
                 severity: (.Severity | ascii_downcase),
@@ -201,7 +231,7 @@ jobs:
 
       - name: Upload attestation chain
         id: upload-chain
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: attestation-chain-${{ github.sha }}
           path: attestation-chain.json
@@ -212,6 +242,11 @@ jobs:
     needs: security-checks
     runs-on: ubuntu-latest
     environment: production
+    if: "github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'"
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - uses: actions/checkout@v6
@@ -220,6 +255,16 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: '1.26'
+
+      - name: Cache Go modules and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
       - name: Build binaries
         run: |
@@ -231,7 +276,7 @@ jobs:
           go build -o ./release/gate   ./cmd/gate
 
       - name: Download attestation chain
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: attestation-chain-${{ github.sha }}
 
@@ -261,8 +306,17 @@ jobs:
           cp gate-decision.json     release/
           echo "$ARTIFACT_REF" > release/COMMIT
 
+      - name: Attest release provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            release/keygen
+            release/attest
+            release/verify
+            release/gate
+
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ github.sha }}
           path: release/
