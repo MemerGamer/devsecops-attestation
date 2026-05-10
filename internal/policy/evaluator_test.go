@@ -256,6 +256,42 @@ func TestEvaluateEdgeCases(t *testing.T) {
 		}
 	})
 
+	t.Run("deny_reasons with import rego.v1 returns array not map", func(t *testing.T) {
+		// With `import rego.v1`, OPA returns sets as []interface{} not map[string]interface{}.
+		// This test guards against the type-assertion bug that caused reasons to be silently nil.
+		regoV1Policy := `
+package devsecops.gate
+
+import rego.v1
+
+default allow := false
+
+sast_passed if {
+    some a in input.attestations
+    a.result.check_type == "sast"
+    a.result.passed == true
+}
+
+deny_reasons contains "SAST did not pass" if not sast_passed
+`
+		e := policy.NewEvaluator(regoV1Policy)
+		atts := []types.Attestation{
+			buildAttestation(types.CheckSAST, false, nil),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+		}
+		decision, err := e.Evaluate(ctx, buildInput(atts))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false")
+		}
+		if !containsReason(decision.Reasons, "SAST did not pass") {
+			t.Errorf("reasons %v should contain 'SAST did not pass'", decision.Reasons)
+		}
+	})
+
 	t.Run("invalid Rego syntax returns eval error", func(t *testing.T) {
 		// A syntactically invalid policy causes allowQuery.Eval to return an error,
 		// covering lines 126-128.

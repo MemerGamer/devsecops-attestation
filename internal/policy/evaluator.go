@@ -155,9 +155,19 @@ func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*typ
 	}
 	var reasons []string
 	if len(denyRS) > 0 && len(denyRS[0].Expressions) > 0 {
-		if set, ok := denyRS[0].Expressions[0].Value.(map[string]interface{}); ok {
+		v := denyRS[0].Expressions[0].Value
+		switch set := v.(type) {
+		case map[string]interface{}:
+			// OPA with future.keywords syntax: set elements are map keys
 			for k := range set {
 				reasons = append(reasons, k)
+			}
+		case []interface{}:
+			// OPA with import rego.v1 syntax: set is serialized as array
+			for _, elem := range set {
+				if s, ok := elem.(string); ok {
+					reasons = append(reasons, s)
+				}
 			}
 		}
 	}
