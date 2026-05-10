@@ -1,4 +1,4 @@
-<svg width="100%" viewBox="0 0 680 580" xmlns="http://www.w3.org/2000/svg">
+<svg width="100%" viewBox="0 0 760 680" xmlns="http://www.w3.org/2000/svg">
 <defs>
   <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
     <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -6,102 +6,143 @@
 </defs>
 
 <!-- GitHub Actions container -->
-<rect x="30" y="20" width="460" height="390" rx="14" fill="none" stroke="var(--color-border-secondary)" stroke-width="1" stroke-dasharray="6 4" style="fill:none;stroke:rgba(222, 220, 209, 0.3);color:rgb(251, 251, 254);stroke-width:1px;stroke-dasharray:6px, 4px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-<text x="50" y="42" style="fill:var(--color-text-secondary);fill:rgb(194, 192, 182);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">GitHub Actions pipeline</text>
+<rect x="30" y="20" width="460" height="415" rx="14" fill="none"
+  stroke="rgba(222, 220, 209, 0.3)" stroke-width="1" stroke-dasharray="6 4"/>
+<text x="50" y="42" fill="rgb(194, 192, 182)" font-family="sans-serif" font-size="12">GitHub Actions pipeline</text>
 
-<!-- Phase labels -->
-<text x="510" y="90" style="fill:var(--color-text-tertiary);fill:rgb(156, 154, 146);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">Phase 1</text>
-<text x="510" y="200" style="fill:var(--color-text-tertiary);fill:rgb(156, 154, 146);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">Phase 2</text>
-<text x="510" y="320" style="fill:var(--color-text-tertiary);fill:rgb(156, 154, 146);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">Phase 3</text>
+<!-- SAST scan -->
+<rect x="50" y="55" width="130" height="56" rx="8"
+  fill="rgb(8, 80, 65)" stroke="rgb(93, 202, 165)" stroke-width="0.5"/>
+<text x="115" y="77" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(159, 225, 203)" font-family="sans-serif" font-size="14" font-weight="500">SAST scan</text>
+<text x="115" y="95" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(93, 202, 165)" font-family="sans-serif" font-size="12">semgrep</text>
 
-<!-- Step 1: SAST -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="50" y="60" width="130" height="56" rx="8" stroke-width="0.5" style="fill:rgb(8, 80, 65);stroke:rgb(93, 202, 165);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="115" y="82" text-anchor="middle" dominant-baseline="central" style="fill:rgb(159, 225, 203);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">SAST scan</text>
-  <text x="115" y="100" text-anchor="middle" dominant-baseline="central" style="fill:rgb(93, 202, 165);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">Static analysis</text>
-</g>
+<!-- SCA scan -->
+<rect x="50" y="150" width="130" height="56" rx="8"
+  fill="rgb(8, 80, 65)" stroke="rgb(93, 202, 165)" stroke-width="0.5"/>
+<text x="115" y="172" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(159, 225, 203)" font-family="sans-serif" font-size="14" font-weight="500">SCA scan</text>
+<text x="115" y="190" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(93, 202, 165)" font-family="sans-serif" font-size="12">trivy</text>
 
-<!-- Step 2: SCA -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="50" y="160" width="130" height="56" rx="8" stroke-width="0.5" style="fill:rgb(8, 80, 65);stroke:rgb(93, 202, 165);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="115" y="182" text-anchor="middle" dominant-baseline="central" style="fill:rgb(159, 225, 203);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">SCA scan</text>
-  <text x="115" y="200" text-anchor="middle" dominant-baseline="central" style="fill:rgb(93, 202, 165);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">Dependency check</text>
-</g>
+<!-- Config scan -->
+<rect x="50" y="245" width="130" height="56" rx="8"
+  fill="rgb(8, 80, 65)" stroke="rgb(93, 202, 165)" stroke-width="0.5"/>
+<text x="115" y="267" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(159, 225, 203)" font-family="sans-serif" font-size="14" font-weight="500">Config scan</text>
+<text x="115" y="285" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(93, 202, 165)" font-family="sans-serif" font-size="12">checkov</text>
 
-<!-- Step 3: Config -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="50" y="260" width="130" height="56" rx="8" stroke-width="0.5" style="fill:rgb(8, 80, 65);stroke:rgb(93, 202, 165);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="115" y="282" text-anchor="middle" dominant-baseline="central" style="fill:rgb(159, 225, 203);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">Config check</text>
-  <text x="115" y="300" text-anchor="middle" dominant-baseline="central" style="fill:rgb(93, 202, 165);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">IaC / secrets scan</text>
-</g>
+<!-- Secret scan -->
+<rect x="50" y="340" width="130" height="56" rx="8"
+  fill="rgb(8, 80, 65)" stroke="rgb(93, 202, 165)" stroke-width="0.5"/>
+<text x="115" y="362" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(159, 225, 203)" font-family="sans-serif" font-size="14" font-weight="500">Secret scan</text>
+<text x="115" y="380" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(93, 202, 165)" font-family="sans-serif" font-size="12">gitleaks</text>
 
 <!-- Attestation 1 -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="230" y="60" width="140" height="56" rx="8" stroke-width="0.5" style="fill:rgb(60, 52, 137);stroke:rgb(175, 169, 236);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="300" y="82" text-anchor="middle" dominant-baseline="central" style="fill:rgb(206, 203, 246);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">Attestation₁</text>
-  <text x="300" y="100" text-anchor="middle" dominant-baseline="central" style="fill:rgb(175, 169, 236);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">Ed25519 signed</text>
-</g>
+<rect x="230" y="55" width="140" height="56" rx="8"
+  fill="rgb(60, 52, 137)" stroke="rgb(175, 169, 236)" stroke-width="0.5"/>
+<text x="300" y="77" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(206, 203, 246)" font-family="sans-serif" font-size="14" font-weight="500">Attestation&#x2081;</text>
+<text x="300" y="95" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(175, 169, 236)" font-family="sans-serif" font-size="12">sast &#xB7; signed &#xB7; log_entry</text>
 
 <!-- Attestation 2 -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="230" y="160" width="140" height="56" rx="8" stroke-width="0.5" style="fill:rgb(60, 52, 137);stroke:rgb(175, 169, 236);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="300" y="182" text-anchor="middle" dominant-baseline="central" style="fill:rgb(206, 203, 246);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">Attestation₂</text>
-  <text x="300" y="200" text-anchor="middle" dominant-baseline="central" style="fill:rgb(175, 169, 236);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">chains to att₁</text>
-</g>
+<rect x="230" y="150" width="140" height="56" rx="8"
+  fill="rgb(60, 52, 137)" stroke="rgb(175, 169, 236)" stroke-width="0.5"/>
+<text x="300" y="172" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(206, 203, 246)" font-family="sans-serif" font-size="14" font-weight="500">Attestation&#x2082;</text>
+<text x="300" y="190" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(175, 169, 236)" font-family="sans-serif" font-size="12">sca &#xB7; chains to att&#x2081;</text>
 
 <!-- Attestation 3 -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="230" y="260" width="140" height="56" rx="8" stroke-width="0.5" style="fill:rgb(60, 52, 137);stroke:rgb(175, 169, 236);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="300" y="282" text-anchor="middle" dominant-baseline="central" style="fill:rgb(206, 203, 246);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">Attestation₃</text>
-  <text x="300" y="300" text-anchor="middle" dominant-baseline="central" style="fill:rgb(175, 169, 236);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">chains to att₂</text>
-</g>
+<rect x="230" y="245" width="140" height="56" rx="8"
+  fill="rgb(60, 52, 137)" stroke="rgb(175, 169, 236)" stroke-width="0.5"/>
+<text x="300" y="267" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(206, 203, 246)" font-family="sans-serif" font-size="14" font-weight="500">Attestation&#x2083;</text>
+<text x="300" y="285" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(175, 169, 236)" font-family="sans-serif" font-size="12">config &#xB7; chains to att&#x2082;</text>
 
-<!-- Arrows scan → attestation -->
-<line x1="180" y1="88" x2="228" y2="88" marker-end="url(#arrow)" stroke="var(--color-border-secondary)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-<line x1="180" y1="188" x2="228" y2="188" marker-end="url(#arrow)" stroke="var(--color-border-secondary)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-<line x1="180" y1="288" x2="228" y2="288" marker-end="url(#arrow)" stroke="var(--color-border-secondary)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<!-- Attestation 4 -->
+<rect x="230" y="340" width="140" height="56" rx="8"
+  fill="rgb(60, 52, 137)" stroke="rgb(175, 169, 236)" stroke-width="0.5"/>
+<text x="300" y="362" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(206, 203, 246)" font-family="sans-serif" font-size="14" font-weight="500">Attestation&#x2084;</text>
+<text x="300" y="380" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(175, 169, 236)" font-family="sans-serif" font-size="12">secret &#xB7; chains to att&#x2083;</text>
 
-<!-- Chain arrows (vertical) -->
-<line x1="300" y1="116" x2="300" y2="158" marker-end="url(#arrow)" stroke="#7F77DD" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-<line x1="300" y1="216" x2="300" y2="258" marker-end="url(#arrow)" stroke="#7F77DD" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<!-- Arrows: scan step -> attestation -->
+<line x1="180" y1="83"  x2="228" y2="83"  stroke="rgb(156, 154, 146)" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="180" y1="178" x2="228" y2="178" stroke="rgb(156, 154, 146)" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="180" y1="273" x2="228" y2="273" stroke="rgb(156, 154, 146)" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="180" y1="368" x2="228" y2="368" stroke="rgb(156, 154, 146)" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-<!-- Policy verifier -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="160" y="370" width="180" height="56" rx="8" stroke-width="0.5" style="fill:rgb(99, 56, 6);stroke:rgb(239, 159, 39);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="250" y="392" text-anchor="middle" dominant-baseline="central" style="fill:rgb(250, 199, 117);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">Policy verifier</text>
-  <text x="250" y="410" text-anchor="middle" dominant-baseline="central" style="fill:rgb(239, 159, 39);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">OPA + chain check</text>
-</g>
+<!-- Chain arrows (SHA-256 linkage between attestations) -->
+<line x1="300" y1="111" x2="300" y2="148" stroke="rgb(156, 154, 146)" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="300" y1="206" x2="300" y2="243" stroke="rgb(156, 154, 146)" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="300" y1="301" x2="300" y2="338" stroke="rgb(156, 154, 146)" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-<!-- Arrows to verifier -->
-<path d="M300 316 L300 346 L250 346 L250 368" fill="none" stroke="var(--color-border-secondary)" stroke-width="1.5" marker-end="url(#arrow)" style="fill:none;stroke:rgba(222, 220, 209, 0.3);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<!-- Path from att4 to gate (exits container, routes to gate box) -->
+<path d="M300 396 L300 445 L250 445 L250 458" fill="none"
+  stroke="rgba(222, 220, 209, 0.3)" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-<!-- Deploy gate -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="160" y="480" width="180" height="56" rx="8" stroke-width="0.5" style="fill:rgb(39, 80, 10);stroke:rgb(151, 196, 89);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="250" y="502" text-anchor="middle" dominant-baseline="central" style="fill:rgb(192, 221, 151);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">Deploy gate</text>
-  <text x="250" y="520" text-anchor="middle" dominant-baseline="central" style="fill:rgb(151, 196, 89);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">ALLOW / BLOCK</text>
-</g>
+<!-- Gate layer 1: Chain + signer verification -->
+<rect x="60" y="460" width="380" height="56" rx="8"
+  fill="rgb(99, 56, 6)" stroke="rgb(239, 159, 39)" stroke-width="0.5"/>
+<text x="250" y="482" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(250, 199, 117)" font-family="sans-serif" font-size="14" font-weight="500">Chain + signer verification</text>
+<text x="250" y="500" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(239, 159, 39)" font-family="sans-serif" font-size="12">VerifyChain &#xB7; authorized signers &#xB7; log entries &#xB7; policy hash</text>
 
-<line x1="250" y1="426" x2="250" y2="478" marker-end="url(#arrow)" stroke="var(--color-border-secondary)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<line x1="250" y1="516" x2="250" y2="528" stroke="rgb(156, 154, 146)" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-<!-- Transparency log -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="500" y="130" width="150" height="56" rx="8" stroke-width="0.5" style="fill:rgb(68, 68, 65);stroke:rgb(180, 178, 169);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="575" y="152" text-anchor="middle" dominant-baseline="central" style="fill:rgb(211, 209, 199);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">Transparency log</text>
-  <text x="575" y="170" text-anchor="middle" dominant-baseline="central" style="fill:rgb(180, 178, 169);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">Rekor / append-only</text>
-</g>
+<!-- Gate layer 2: OPA policy evaluation -->
+<rect x="100" y="530" width="300" height="56" rx="8"
+  fill="rgb(99, 56, 6)" stroke="rgb(239, 159, 39)" stroke-width="0.5"/>
+<text x="250" y="552" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(250, 199, 117)" font-family="sans-serif" font-size="14" font-weight="500">OPA policy evaluation</text>
+<text x="250" y="570" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(239, 159, 39)" font-family="sans-serif" font-size="12">deploy.rego &#xB7; authorized_signers &#xB7; findings</text>
 
-<!-- Arrow attestations → log -->
-<path d="M370 88 L430 88 L430 158 L498 158" fill="none" stroke="#888780" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)" style="fill:none;stroke:rgb(136, 135, 128);color:rgb(251, 251, 254);stroke-width:1px;stroke-dasharray:4px, 3px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<line x1="250" y1="586" x2="250" y2="598" stroke="rgb(156, 154, 146)" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-<!-- Key store -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="500" y="370" width="150" height="56" rx="8" stroke-width="0.5" style="fill:rgb(68, 68, 65);stroke:rgb(180, 178, 169);color:rgb(251, 251, 254);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="575" y="392" text-anchor="middle" dominant-baseline="central" style="fill:rgb(211, 209, 199);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">Key store</text>
-  <text x="575" y="410" text-anchor="middle" dominant-baseline="central" style="fill:rgb(180, 178, 169);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">Per-actor keypairs</text>
-</g>
+<!-- Deploy gate: ALLOW / BLOCK -->
+<rect x="155" y="600" width="190" height="56" rx="8"
+  fill="rgb(39, 80, 10)" stroke="rgb(151, 196, 89)" stroke-width="0.5"/>
+<text x="250" y="622" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(192, 221, 151)" font-family="sans-serif" font-size="14" font-weight="500">Deploy gate</text>
+<text x="250" y="640" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(151, 196, 89)" font-family="sans-serif" font-size="12">ALLOW / BLOCK</text>
 
-<!-- Arrow keystore → verifier -->
-<line x1="500" y1="398" x2="342" y2="398" marker-end="url(#arrow)" stroke="#888780" stroke-width="1" stroke-dasharray="4 3" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-dasharray:4px, 3px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<!-- Transparency log (right, aligned with att1) -->
+<rect x="530" y="55" width="210" height="70" rx="8"
+  fill="rgb(68, 68, 65)" stroke="rgb(180, 178, 169)" stroke-width="0.5"/>
+<text x="635" y="78" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(211, 209, 199)" font-family="sans-serif" font-size="14" font-weight="500">Transparency log</text>
+<text x="635" y="96" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(180, 178, 169)" font-family="sans-serif" font-size="12">log_entry URL stored</text>
+<text x="635" y="114" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(156, 154, 146)" font-family="sans-serif" font-size="11">Rekor integration: PhD scope</text>
+
+<!-- Arrow att1 -> transparency log (dashed) -->
+<path d="M370 83 L528 83" fill="none"
+  stroke="rgb(136, 135, 128)" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+<!-- Per-check-type key pairs (right, middle of chain) -->
+<rect x="530" y="255" width="210" height="70" rx="8"
+  fill="rgb(68, 68, 65)" stroke="rgb(180, 178, 169)" stroke-width="0.5"/>
+<text x="635" y="278" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(211, 209, 199)" font-family="sans-serif" font-size="14" font-weight="500">Per-check-type keys</text>
+<text x="635" y="296" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(180, 178, 169)" font-family="sans-serif" font-size="12">4 independent Ed25519 pairs</text>
+<text x="635" y="314" text-anchor="middle" dominant-baseline="central"
+  fill="rgb(156, 154, 146)" font-family="sans-serif" font-size="11">sast &#xB7; sca &#xB7; config &#xB7; secret</text>
+
+<!-- Arrow key pairs -> gate layer 1 (authorized signers, dashed) -->
+<path d="M635 325 L635 488 L442 488" fill="none"
+  stroke="rgb(136, 135, 128)" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
 
 </svg>
