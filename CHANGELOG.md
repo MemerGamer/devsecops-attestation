@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/MemerGamer/devsecops-attestation/compare/v0.3.0...v0.3.1) (2026-05-10)
+
+
+### Bug Fixes
+
+* handle OPA rego.v1 deny_reasons returned as []interface{} ([cc8250f](https://github.com/MemerGamer/devsecops-attestation/commit/cc8250f2cf128d3cae30a6e31838acc6a9d568ae))
+
 ## [0.3.0](https://github.com/MemerGamer/devsecops-attestation/compare/v0.2.1...v0.3.0) (2026-05-10)
 
 
