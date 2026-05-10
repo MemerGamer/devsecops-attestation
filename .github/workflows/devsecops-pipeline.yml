@@ -7,11 +7,14 @@ on:
     branches: [main]
 
 env:
-  # The signing key is stored as a GitHub Actions secret.
-  # Generate with: go run ./cmd/keygen
-  # Store the hex-encoded private key as ATTESTATION_SIGNING_KEY
+  # Per-check-type signing keys are stored as GitHub Actions secrets.
+  # Generate a key pair for each check with: go run ./cmd/keygen
+  # Secrets required: SAST_SIGNING_KEY, SCA_SIGNING_KEY, CONFIG_SIGNING_KEY, SECRET_SCANNING_SIGNING_KEY
+  # Public key secrets for gate verification: SAST_PUBLIC_KEY, SCA_PUBLIC_KEY, CONFIG_PUBLIC_KEY, SECRET_SCANNING_PUBLIC_KEY
   ARTIFACT_REF: ${{ github.sha }}
   APP_NAME: ${{ github.repository }}
+  # GitHub Actions run URL for transparency log entries.
+  LOG_ENTRY_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
   # Run the full unit test suite before any security or signing steps.
@@ -123,7 +126,9 @@ jobs:
             --result sast-results.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
-            --signing-key "${{ secrets.ATTESTATION_SIGNING_KEY }}" \
+            --signing-key "${{ secrets.SAST_SIGNING_KEY }}" \
+            --signer-id "github-runner:${{ runner.os }}" \
+            --log-entry "$LOG_ENTRY_URL" \
             --chain attestation-chain.json
 
       # SCA
@@ -158,7 +163,9 @@ jobs:
             --result sca-results.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
-            --signing-key "${{ secrets.ATTESTATION_SIGNING_KEY }}" \
+            --signing-key "${{ secrets.SCA_SIGNING_KEY }}" \
+            --signer-id "github-runner:${{ runner.os }}" \
+            --log-entry "$LOG_ENTRY_URL" \
             --chain attestation-chain.json
 
       # Config / IaC
@@ -191,7 +198,9 @@ jobs:
             --result config-results.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
-            --signing-key "${{ secrets.ATTESTATION_SIGNING_KEY }}" \
+            --signing-key "${{ secrets.CONFIG_SIGNING_KEY }}" \
+            --signer-id "github-runner:${{ runner.os }}" \
+            --log-entry "$LOG_ENTRY_URL" \
             --chain attestation-chain.json
 
       # Secret scan
@@ -226,14 +235,15 @@ jobs:
             --result secret-results.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
-            --signing-key "${{ secrets.ATTESTATION_SIGNING_KEY }}" \
+            --signing-key "${{ secrets.SECRET_SCANNING_SIGNING_KEY }}" \
+            --signer-id "github-runner:${{ runner.os }}" \
+            --log-entry "$LOG_ENTRY_URL" \
             --chain attestation-chain.json
 
       - name: Verify chain integrity
         run: |
           ./bin/verify \
-            --chain attestation-chain.json \
-            --verify-signer "${{ secrets.ATTESTATION_PUBLIC_KEY }}"
+            --chain attestation-chain.json
 
       - name: Upload attestation chain
         id: upload-chain
@@ -291,8 +301,11 @@ jobs:
         run: |
           ./bin/gate evaluate \
             --chain attestation-chain.json \
-            --verify-signer "${{ secrets.ATTESTATION_PUBLIC_KEY }}" \
+            --authorized-signers "sast=${{ secrets.SAST_PUBLIC_KEY }},sca=${{ secrets.SCA_PUBLIC_KEY }},config=${{ secrets.CONFIG_PUBLIC_KEY }},secret=${{ secrets.SECRET_SCANNING_PUBLIC_KEY }}" \
             --policy .github/policies/deploy.rego \
+            --policy-hash a93fea4b0b53a2acaf66a82392715ee59c7e37a49dc32a365ab7bbe8dc23f113 \
+            --max-age 24h \
+            --require-log-entries \
             --output gate-decision.json
 
       - name: Check gate decision

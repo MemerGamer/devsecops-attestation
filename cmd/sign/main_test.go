@@ -318,6 +318,61 @@ func TestRunSign(t *testing.T) {
 		}
 	})
 
+	t.Run("signer-id is embedded in attestation and covered by signature", func(t *testing.T) {
+		dir := t.TempDir()
+		chainPath := filepath.Join(dir, "chain.json")
+		privHex, _ := generateTestKey(t)
+
+		err := runSign(ctx, signFlags{
+			checkType:  "sast",
+			tool:       "semgrep",
+			resultFile: resultFile,
+			targetRef:  "abc123",
+			subject:    "myapp",
+			signingKey: privHex,
+			signerID:   "ci-runner:ubuntu-22.04",
+			chain:      chainPath,
+		})
+		if err != nil {
+			t.Fatalf("runSign() error = %v", err)
+		}
+
+		chain, err := attestation.LoadChain(chainPath)
+		if err != nil {
+			t.Fatalf("LoadChain() error = %v", err)
+		}
+		if chain[0].SignerID != "ci-runner:ubuntu-22.04" {
+			t.Errorf("SignerID = %q, want %q", chain[0].SignerID, "ci-runner:ubuntu-22.04")
+		}
+	})
+
+	t.Run("omitted signer-id leaves field empty", func(t *testing.T) {
+		dir := t.TempDir()
+		chainPath := filepath.Join(dir, "chain.json")
+		privHex, _ := generateTestKey(t)
+
+		err := runSign(ctx, signFlags{
+			checkType:  "sast",
+			tool:       "semgrep",
+			resultFile: resultFile,
+			targetRef:  "abc123",
+			subject:    "myapp",
+			signingKey: privHex,
+			chain:      chainPath,
+		})
+		if err != nil {
+			t.Fatalf("runSign() error = %v", err)
+		}
+
+		chain, err := attestation.LoadChain(chainPath)
+		if err != nil {
+			t.Fatalf("LoadChain() error = %v", err)
+		}
+		if chain[0].SignerID != "" {
+			t.Errorf("SignerID = %q, want empty when not specified", chain[0].SignerID)
+		}
+	})
+
 	t.Run("result file with omitted findings field initializes to empty slice", func(t *testing.T) {
 		dir := t.TempDir()
 		// JSON with no "findings" key: input.Findings unmarshals to nil,

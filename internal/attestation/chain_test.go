@@ -9,6 +9,23 @@ import (
 	"github.com/MemerGamer/devsecops-attestation/pkg/types"
 )
 
+// makeAttestationWithTimestamp builds and signs a single attestation with an explicit timestamp.
+// This bypasses Chain.Add so that timestamp-related edge cases can be constructed in tests.
+func makeAttestationWithTimestamp(t *testing.T, kp *crypto.KeyPair, prevDigest string, checkType types.SecurityCheckType, ts time.Time) types.Attestation {
+	t.Helper()
+	a := &types.Attestation{
+		ID:             "test-id-" + string(checkType),
+		Subject:        makeSubject("app"),
+		Result:         makeResult(checkType, true),
+		Timestamp:      ts,
+		PreviousDigest: prevDigest,
+	}
+	if err := crypto.Sign(a, kp); err != nil {
+		t.Fatalf("Sign() error = %v", err)
+	}
+	return *a
+}
+
 // makeKeyPair generates a key pair for tests, calling t.Fatal on error.
 func makeKeyPair(t testing.TB) *crypto.KeyPair {
 	t.Helper()
@@ -113,6 +130,43 @@ func TestChainAdd(t *testing.T) {
 		}
 		if _, err := c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp2); err != nil {
 			t.Fatalf("Add() with kp2 error = %v", err)
+		}
+	})
+
+	t.Run("SetNextSignerID is embedded and cleared after Add", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.SetNextSignerID("ci-runner:ubuntu-22.04")
+		a1, err := c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)
+		if err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+		if a1.SignerID != "ci-runner:ubuntu-22.04" {
+			t.Errorf("a1.SignerID = %q, want %q", a1.SignerID, "ci-runner:ubuntu-22.04")
+		}
+
+		// Second Add without calling SetNextSignerID must have empty SignerID.
+		a2, err := c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)
+		if err != nil {
+			t.Fatalf("Add() second error = %v", err)
+		}
+		if a2.SignerID != "" {
+			t.Errorf("a2.SignerID = %q, want empty (nextSignerID should have been reset)", a2.SignerID)
+		}
+	})
+
+	t.Run("SignerID is covered by Ed25519 signature", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.SetNextSignerID("trusted-runner")
+		a, err := c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)
+		if err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+		// Tamper with SignerID after signing - signature must fail.
+		a.SignerID = "evil-runner"
+		if err := crypto.Verify(a); err == nil {
+			t.Error("Verify() expected error after tampering SignerID, got nil")
 		}
 	})
 
@@ -354,6 +408,176 @@ func TestVerifyChain(t *testing.T) {
 		// Error should propagate. Just check it is non-nil (specific message tested above).
 		if !strings.Contains(err.Error(), "") {
 			t.Error("error is empty string")
+		}
+	})
+
+	t.Run("mixed subjects fail subject consistency check", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.Add(makeSubject("app-a"), makeResult(types.CheckSAST, true), kp)  //nolint
+		c.Add(makeSubject("app-b"), makeResult(types.CheckSCA, true), kp)   //nolint
+
+		results, err := VerifyChain(c.Attestations())
+		if err == nil {
+			t.Error("VerifyChain() expected error for mixed subjects, got nil")
+		}
+		if results[1].ChainValid {
+			t.Error("results[1].ChainValid should be false for subject mismatch")
+		}
+	})
+
+	t.Run("consistent subjects pass subject check", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)    //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)     //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckConfig, true), kp)  //nolint
+
+		_, err := VerifyChain(c.Attestations())
+		if err != nil {
+			t.Errorf("VerifyChain() unexpected error for consistent subjects: %v", err)
+		}
+	})
+
+	t.Run("duplicate check type fails", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)  //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)   //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)  //nolint
+
+		results, err := VerifyChain(c.Attestations())
+		if err == nil {
+			t.Error("VerifyChain() expected error for duplicate check type, got nil")
+		}
+		if results[2].ChainValid {
+			t.Error("results[2].ChainValid should be false for duplicate SAST")
+		}
+		if !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("error %q should mention 'duplicate'", err.Error())
+		}
+	})
+
+	t.Run("future timestamp fails", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		futureTime := time.Now().UTC().Add(24 * time.Hour)
+		a1 := makeAttestationWithTimestamp(t, kp, "", types.CheckSAST, futureTime)
+
+		results, err := VerifyChain([]types.Attestation{a1})
+		if err == nil {
+			t.Error("VerifyChain() expected error for future timestamp, got nil")
+		}
+		if results[0].ChainValid {
+			t.Error("results[0].ChainValid should be false for future timestamp")
+		}
+	})
+
+	t.Run("timestamp regression fails", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		now := time.Now().UTC()
+		a1 := makeAttestationWithTimestamp(t, kp, "", types.CheckSAST, now)
+		digest1, err := crypto.Digest(&a1)
+		if err != nil {
+			t.Fatalf("Digest() error = %v", err)
+		}
+		// a2 has a timestamp one hour before a1 - a regression.
+		a2 := makeAttestationWithTimestamp(t, kp, digest1, types.CheckSCA, now.Add(-1*time.Hour))
+
+		results, err := VerifyChain([]types.Attestation{a1, a2})
+		if err == nil {
+			t.Error("VerifyChain() expected error for timestamp regression, got nil")
+		}
+		if results[1].ChainValid {
+			t.Error("results[1].ChainValid should be false for timestamp regression")
+		}
+	})
+
+	t.Run("equal timestamps pass monotonicity check", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		ts := time.Now().UTC()
+		a1 := makeAttestationWithTimestamp(t, kp, "", types.CheckSAST, ts)
+		digest1, _ := crypto.Digest(&a1)
+		a2 := makeAttestationWithTimestamp(t, kp, digest1, types.CheckSCA, ts)
+
+		_, err := VerifyChain([]types.Attestation{a1, a2})
+		if err != nil {
+			t.Errorf("VerifyChain() unexpected error for equal timestamps: %v", err)
+		}
+	})
+}
+
+func TestVerifyChainWithOptions(t *testing.T) {
+	makeChain := func(t *testing.T) ([]types.Attestation, *crypto.KeyPair) {
+		t.Helper()
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)    //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)     //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckConfig, true), kp)  //nolint
+		return c.Attestations(), kp
+	}
+
+	t.Run("no max age option passes recent chain", func(t *testing.T) {
+		chain, _ := makeChain(t)
+		_, err := VerifyChainWithOptions(chain, VerifyOptions{})
+		if err != nil {
+			t.Errorf("VerifyChainWithOptions() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("max age rejects old attestations", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		oldTime := time.Now().UTC().Add(-48 * time.Hour)
+		a1 := makeAttestationWithTimestamp(t, kp, "", types.CheckSAST, oldTime)
+
+		opts := VerifyOptions{MaxAge: 24 * time.Hour}
+		results, err := VerifyChainWithOptions([]types.Attestation{a1}, opts)
+		if err == nil {
+			t.Error("VerifyChainWithOptions() expected error for old attestation, got nil")
+		}
+		if results[0].ChainValid {
+			t.Error("results[0].ChainValid should be false for expired attestation")
+		}
+	})
+
+	t.Run("max age accepts recent attestations", func(t *testing.T) {
+		chain, _ := makeChain(t)
+		opts := VerifyOptions{MaxAge: 24 * time.Hour}
+		_, err := VerifyChainWithOptions(chain, opts)
+		if err != nil {
+			t.Errorf("VerifyChainWithOptions() unexpected error for fresh chain: %v", err)
+		}
+	})
+
+	t.Run("injected Now makes fresh attestation appear future", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		// Attestation is created now; Now is set 2 hours in the past, so attestation is in the future.
+		a1 := makeAttestationWithTimestamp(t, kp, "", types.CheckSAST, time.Now().UTC())
+		opts := VerifyOptions{Now: time.Now().UTC().Add(-2 * time.Hour)}
+
+		_, err := VerifyChainWithOptions([]types.Attestation{a1}, opts)
+		if err == nil {
+			t.Error("VerifyChainWithOptions() expected error when Now is in the past, got nil")
+		}
+	})
+
+	t.Run("custom clock skew tolerance is respected", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		// Attestation is 30 seconds in the future.
+		slightlyFuture := time.Now().UTC().Add(30 * time.Second)
+		a1 := makeAttestationWithTimestamp(t, kp, "", types.CheckSAST, slightlyFuture)
+
+		// Default 60 s tolerance - should pass.
+		_, err := VerifyChainWithOptions([]types.Attestation{a1}, VerifyOptions{})
+		if err != nil {
+			t.Errorf("VerifyChainWithOptions() unexpected error within default skew: %v", err)
+		}
+
+		// Tight 1 s tolerance - should fail.
+		opts := VerifyOptions{ClockSkewTolerance: time.Second}
+		_, err = VerifyChainWithOptions([]types.Attestation{a1}, opts)
+		if err == nil {
+			t.Error("VerifyChainWithOptions() expected error when skew tolerance is tight, got nil")
 		}
 	})
 }

@@ -9,6 +9,8 @@ package policy
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -32,6 +34,7 @@ default allow := false
 #   1. All required check types were run
 #   2. No critical findings exist
 #   3. All checks passed
+#   4. Each check type with a configured authorized signer was signed by that key
 
 required_checks := {"sast", "sca", "config"}
 
@@ -52,6 +55,13 @@ allow if {
     # All checks passed
     failed := [a | a := input.attestations[_]; a.result.passed == false]
     count(failed) == 0
+
+    # No attestations use an unauthorized signer (skipped when authorized_signers is empty)
+    count([a |
+        a := input.attestations[_]
+        authorized := input.authorized_signers[a.result.check_type]
+        a.signer_public_key_hex != authorized
+    ]) == 0
 }
 
 # Collect reasons for denial (useful for human-readable output)
@@ -75,6 +85,13 @@ deny_reasons[msg] if {
     failed := [a.result.check_type | a := input.attestations[_]; a.result.passed == false]
     count(failed) > 0
     msg := sprintf("failed checks: %v", [failed])
+}
+
+deny_reasons[msg] if {
+    a := input.attestations[_]
+    authorized := input.authorized_signers[a.result.check_type]
+    a.signer_public_key_hex != authorized
+    msg := sprintf("unauthorized signer for check type %q: key does not match authorized signer", [a.result.check_type])
 }
 `
 
@@ -156,9 +173,26 @@ func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*typ
 
 // toMap converts a PolicyInput to a map[string]interface{} for OPA.
 // OPA's rego.Input expects a plain Go map, not a typed struct.
+// It also adds a signer_public_key_hex field to each attestation so Rego
+// rules can compare signer identity using the hex format produced by keygen.
 func toMap(input types.PolicyInput) map[string]interface{} {
 	b, _ := json.Marshal(input)
 	var m map[string]interface{}
 	_ = json.Unmarshal(b, &m)
+
+	// Inject signer_public_key_hex into each attestation map. json.Marshal
+	// encodes []byte as base64; convert it to the hex format that authorized_signers uses.
+	if atts, ok := m["attestations"].([]interface{}); ok {
+		for _, elem := range atts {
+			if att, ok := elem.(map[string]interface{}); ok {
+				if b64, ok := att["signer_public_key"].(string); ok {
+					raw, err := base64.StdEncoding.DecodeString(b64)
+					if err == nil {
+						att["signer_public_key_hex"] = hex.EncodeToString(raw)
+					}
+				}
+			}
+		}
+	}
 	return m
 }

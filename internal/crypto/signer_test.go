@@ -84,6 +84,28 @@ func TestCanonicalPayload(t *testing.T) {
 	if !bytes.Equal(payload, payload2) {
 		t.Error("CanonicalPayload() is not deterministic")
 	}
+
+	// signer_id must be absent when empty (omitempty) and present when set.
+	if _, ok := m["signer_id"]; ok {
+		t.Error("CanonicalPayload() must not include 'signer_id' when empty")
+	}
+
+	aWithID := newTestAttestation(t)
+	aWithID.SignerID = "test-runner:v1"
+	if err := Sign(aWithID, kp); err != nil {
+		t.Fatalf("Sign() with SignerID error = %v", err)
+	}
+	payloadWithID, err := CanonicalPayload(aWithID)
+	if err != nil {
+		t.Fatalf("CanonicalPayload() with SignerID error = %v", err)
+	}
+	var mWithID map[string]interface{}
+	if err := json.Unmarshal(payloadWithID, &mWithID); err != nil {
+		t.Fatalf("unmarshalling payload with SignerID: %v", err)
+	}
+	if v, ok := mWithID["signer_id"]; !ok || v != "test-runner:v1" {
+		t.Errorf("CanonicalPayload() signer_id = %v, want %q", v, "test-runner:v1")
+	}
 }
 
 func TestGenerateKeyPair(t *testing.T) {
@@ -290,6 +312,14 @@ func TestSignAndVerify(t *testing.T) {
 					Severity: types.SeverityCritical,
 					Title:    "injected finding",
 				})
+			},
+			signKP:  kp,
+			wantErr: "tampered",
+		},
+		{
+			name: "injected SignerID after signing",
+			setup: func(a *types.Attestation) {
+				a.SignerID = "injected-runner"
 			},
 			signKP:  kp,
 			wantErr: "tampered",

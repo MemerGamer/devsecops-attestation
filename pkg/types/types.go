@@ -81,6 +81,11 @@ type Attestation struct {
 	SignerPublicKey []byte `json:"signer_public_key"` // Ed25519 public key (raw 32 bytes)
 	Signature       []byte `json:"signature"`          // Ed25519 signature over canonical payload
 
+	// SignerID is a human-readable identity for the signer (e.g. "github-runner:ubuntu-22.04").
+	// Included in the canonical payload so it is cryptographically bound to the attestation.
+	// Optional; empty string is omitted from JSON.
+	SignerID string `json:"signer_id,omitempty"`
+
 	// Transparency log reference (optional, set after submission)
 	LogEntry string `json:"log_entry,omitempty"` // e.g. Rekor UUID
 }
@@ -92,6 +97,11 @@ type PolicyInput struct {
 	Subject      AttestationSubject `json:"subject"`
 	Attestations []Attestation      `json:"attestations"`
 	RunAt        time.Time          `json:"run_at"`
+
+	// AuthorizedSigners maps check type (e.g. "sast") to the expected hex-encoded
+	// Ed25519 public key. When present, the policy enforces that each check type
+	// was signed by its designated key. Omitted from JSON when empty.
+	AuthorizedSigners map[string]string `json:"authorized_signers,omitempty"`
 }
 
 // GateDecision is the output of the deploy gate evaluation.

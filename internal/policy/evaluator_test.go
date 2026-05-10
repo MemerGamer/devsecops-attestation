@@ -2,6 +2,7 @@ package policy_test
 
 import (
 	"context"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MemerGamer/devsecops-attestation/internal/crypto"
 	"github.com/MemerGamer/devsecops-attestation/internal/policy"
 	"github.com/MemerGamer/devsecops-attestation/pkg/types"
 )
@@ -334,6 +336,129 @@ func TestEvaluateFromFile(t *testing.T) {
 		_, err := policy.EvaluateFromFile(ctx, "/nonexistent/policy.rego", input)
 		if err == nil {
 			t.Error("expected error for nonexistent policy file, got nil")
+		}
+	})
+}
+
+// buildSignedAttestation creates a signed attestation for policy tests that need
+// a real SignerPublicKey so that authorized_signers checks have something to compare.
+func buildSignedAttestation(t *testing.T, checkType types.SecurityCheckType, passed bool, findings []types.Finding, kp *crypto.KeyPair) types.Attestation {
+	t.Helper()
+	a := buildAttestation(checkType, passed, findings)
+	if err := crypto.Sign(&a, kp); err != nil {
+		t.Fatalf("Sign() error = %v", err)
+	}
+	return a
+}
+
+func TestAuthorizedSigners(t *testing.T) {
+	ctx := context.Background()
+
+	kp, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair() error = %v", err)
+	}
+	pubHex := hex.EncodeToString([]byte(kp.PublicKey))
+
+	kpOther, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair() other error = %v", err)
+	}
+	otherPubHex := hex.EncodeToString([]byte(kpOther.PublicKey))
+
+	t.Run("matching authorized signers allow deployment", func(t *testing.T) {
+		attestations := []types.Attestation{
+			buildSignedAttestation(t, types.CheckSAST, true, nil, kp),
+			buildSignedAttestation(t, types.CheckSCA, true, nil, kp),
+			buildSignedAttestation(t, types.CheckConfig, true, nil, kp),
+		}
+		input := types.PolicyInput{
+			Subject:      attestations[0].Subject,
+			Attestations: attestations,
+			AuthorizedSigners: map[string]string{
+				"sast":   pubHex,
+				"sca":    pubHex,
+				"config": pubHex,
+			},
+		}
+
+		decision, err := policy.NewEvaluator("").Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if !decision.Allow {
+			t.Errorf("Allow=false with matching authorized signers; reasons=%v", decision.Reasons)
+		}
+	})
+
+	t.Run("mismatched authorized signer blocks deployment", func(t *testing.T) {
+		attestations := []types.Attestation{
+			buildSignedAttestation(t, types.CheckSAST, true, nil, kp),
+			buildSignedAttestation(t, types.CheckSCA, true, nil, kp),
+			buildSignedAttestation(t, types.CheckConfig, true, nil, kp),
+		}
+		input := types.PolicyInput{
+			Subject:      attestations[0].Subject,
+			Attestations: attestations,
+			AuthorizedSigners: map[string]string{
+				"sast": otherPubHex, // wrong key
+			},
+		}
+
+		decision, err := policy.NewEvaluator("").Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("Allow=true despite mismatched authorized signer")
+		}
+		if !containsReason(decision.Reasons, "unauthorized signer") {
+			t.Errorf("reasons %v should mention 'unauthorized signer'", decision.Reasons)
+		}
+	})
+
+	t.Run("no authorized_signers configured passes all signers", func(t *testing.T) {
+		attestations := []types.Attestation{
+			buildSignedAttestation(t, types.CheckSAST, true, nil, kp),
+			buildSignedAttestation(t, types.CheckSCA, true, nil, kp),
+			buildSignedAttestation(t, types.CheckConfig, true, nil, kp),
+		}
+		input := types.PolicyInput{
+			Subject:      attestations[0].Subject,
+			Attestations: attestations,
+			// AuthorizedSigners intentionally empty
+		}
+
+		decision, err := policy.NewEvaluator("").Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if !decision.Allow {
+			t.Errorf("Allow=false without authorized_signers configured; reasons=%v", decision.Reasons)
+		}
+	})
+
+	t.Run("partial authorized_signers only checks configured types", func(t *testing.T) {
+		// Only SAST signer is constrained; SCA and Config can use any key.
+		attestations := []types.Attestation{
+			buildSignedAttestation(t, types.CheckSAST, true, nil, kp),
+			buildSignedAttestation(t, types.CheckSCA, true, nil, kpOther),   // different key, not constrained
+			buildSignedAttestation(t, types.CheckConfig, true, nil, kpOther), // different key, not constrained
+		}
+		input := types.PolicyInput{
+			Subject:      attestations[0].Subject,
+			Attestations: attestations,
+			AuthorizedSigners: map[string]string{
+				"sast": pubHex, // only SAST is constrained
+			},
+		}
+
+		decision, err := policy.NewEvaluator("").Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if !decision.Allow {
+			t.Errorf("Allow=false but only SAST is constrained and matches; reasons=%v", decision.Reasons)
 		}
 	})
 }

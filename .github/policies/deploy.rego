@@ -33,6 +33,14 @@ allow if {
     # All checks passed
     failed := [a | a := input.attestations[_]; a.result.passed == false]
     count(failed) == 0
+
+    # No attestations signed by unauthorized signers (only checked when
+    # authorized_signers is configured; absent entries are not evaluated)
+    count([a |
+        a := input.attestations[_]
+        authorized := input.authorized_signers[a.result.check_type]
+        a.signer_public_key_hex != authorized
+    ]) == 0
 }
 
 # Collect reasons for denial (useful for human-readable output)
@@ -56,4 +64,11 @@ deny_reasons[msg] if {
     failed := [a.result.check_type | a := input.attestations[_]; a.result.passed == false]
     count(failed) > 0
     msg := sprintf("failed checks: %v", [failed])
+}
+
+deny_reasons[msg] if {
+    a := input.attestations[_]
+    authorized := input.authorized_signers[a.result.check_type]
+    a.signer_public_key_hex != authorized
+    msg := sprintf("unauthorized signer for check type %q: key does not match authorized signer", [a.result.check_type])
 }

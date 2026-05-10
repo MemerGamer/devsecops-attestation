@@ -73,12 +73,14 @@ func canonicalPayload(a *types.Attestation) ([]byte, error) {
 		Result         types.SecurityResult     `json:"result"`
 		Timestamp      interface{}              `json:"timestamp"`
 		PreviousDigest string                   `json:"previous_digest,omitempty"`
+		SignerID       string                   `json:"signer_id,omitempty"`
 	}{
 		ID:             a.ID,
 		Subject:        a.Subject,
 		Result:         a.Result,
 		Timestamp:      a.Timestamp,
 		PreviousDigest: a.PreviousDigest,
+		SignerID:       a.SignerID,
 	}
 	return json.Marshal(payload)
 }

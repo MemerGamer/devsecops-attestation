@@ -31,6 +31,8 @@ type signFlags struct {
 	targetRef   string
 	subject     string
 	signingKey  string
+	signerID    string
+	logEntry    string
 	chain       string
 	out         string
 }
@@ -60,6 +62,8 @@ func init() {
 	rootCmd.Flags().StringVar(&flags.targetRef, "target-ref", "", "git SHA or artifact digest (required)")
 	rootCmd.Flags().StringVar(&flags.subject, "subject", "", "artifact or application name (required)")
 	rootCmd.Flags().StringVar(&flags.signingKey, "signing-key", "", "128-char hex Ed25519 private key (required)")
+	rootCmd.Flags().StringVar(&flags.signerID, "signer-id", "", "human-readable signer identity, e.g. github-runner:ubuntu-22.04 (optional)")
+	rootCmd.Flags().StringVar(&flags.logEntry, "log-entry", "", "transparency log URL or reference for this attestation (optional)")
 	rootCmd.Flags().StringVar(&flags.chain, "chain", "attestation-chain.json", "path to chain file (read and write)")
 	rootCmd.Flags().StringVar(&flags.out, "out", "", "write output to this path instead of --chain")
 
@@ -106,6 +110,12 @@ func runSign(_ context.Context, f signFlags) error {
 	}
 
 	chain := attestation.NewChainFromSlice(existing)
+	if f.signerID != "" {
+		chain.SetNextSignerID(f.signerID)
+	}
+	if f.logEntry != "" {
+		chain.SetNextLogEntry(f.logEntry)
+	}
 
 	result := types.SecurityResult{
 		CheckType:   checkType,
