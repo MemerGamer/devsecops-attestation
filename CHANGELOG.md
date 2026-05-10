@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/MemerGamer/devsecops-attestation/compare/v0.2.1...v0.3.0) (2026-05-10)
+
+
+### Features
+
+* implement zero-trust compliance improvements ([cf0c09f](https://github.com/MemerGamer/devsecops-attestation/commit/cf0c09f8b0039f8716da8380e05fc9d66a403abb))
+
+
+### Documentation
+
+* update architecture SVG for zero-trust design ([5d4bdc2](https://github.com/MemerGamer/devsecops-attestation/commit/5d4bdc2d9a68e3411fbf04850d265912992e78e8))
+* update documentation to reflect zero-trust architecture ([12b099c](https://github.com/MemerGamer/devsecops-attestation/commit/12b099c21b16c8f24dec6bba767eecd0f2f1a2f6))
+
 ## [0.2.1](https://github.com/MemerGamer/devsecops-attestation/compare/v0.2.0...v0.2.1) (2026-03-21)
 
 
