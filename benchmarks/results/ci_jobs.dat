@@ -1,0 +1,10 @@
+# CI job mean duration (seconds) per repo. '-' = job absent in that repo. Values exclude skipped runs (duration_s=-1).
+idx job phoenix_s rust_s
+1 "Attest & Deploy Gate" 31.5 29.0
+2 "Build & Test" 59.6 18.0
+3 "Config Scan_Checkov" 37.5 37.0
+4 "SAST_Sobelow" 59.6 -
+5 "SAST_semgrep" - 22.0
+6 "SCA_cargo-audit" - 23.0
+7 "SCA_mix_audit" 52.1 -
+8 "Secret Scan_Gitleaks" 4.0 6.0

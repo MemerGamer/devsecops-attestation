@@ -1,0 +1,8 @@
+# VerifyChain scaling: median ns/op and stddev (population) across 10 runs.
+N ns_per_op us_per_op stddev_ns
+1 43800 43.8 397
+4 181000 181 1390
+16 731000 731 13600
+64 2990000 2990 11800
+256 12000000 12000 138000
+1024 48100000 48100 399000

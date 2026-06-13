@@ -1,0 +1,69 @@
+======================================================================
+BENCHMARK AGGREGATE SUMMARY
+Generated from: /home/hunor/Documents/GitHub/devsecops-attestation/benchmarks/results
+======================================================================
+
+--- CRYPTO PRIMITIVE LATENCY (median over 10 runs, population stddev) ---
+Algo               Sign(ns)   Sign(µs)  ±stddev(ns)   Verify(ns)  Verify(µs)  ±stddev(ns)   Keygen(ns)  Keygen(µs)  ±stddev(ns)
+------------------------------------------------------------------------------------------------------------------------
+Ed25519             21349.0     21.349         55.4      43617.0      43.617        233.9      14910.5      14.911         64.7
+ECDSA-P256          24040.0     24.040        249.7      55433.5      55.434        527.0      10638.5      10.639        113.6
+RSA-2048           785259.0    785.259      13972.2      24059.0      24.059        318.4   45154823.0   45154.823    4897082.1
+
+--- VERIFY CHAIN SCALING (median ns/op, population stddev, 10 runs) ---
+     N    median_ns    us_per_op    stddev_ns
+--------------------------------------------
+     1      43787.0       43.787        397.1
+     4     180661.0      180.661       1394.1
+    16     730725.5      730.726      13592.8
+    64    2993954.5     2993.954      11813.9
+   256   11990332.0    11990.332     138453.4
+  1024   48131506.0    48131.506     399035.8
+
+--- OPA EVALUATE SCALING (median ns/op, population stddev, 10 runs) ---
+     N    median_ns    ms_per_op    stddev_ns
+--------------------------------------------
+     1    2562757.5       2.5628      28939.8
+     4    2713632.5       2.7136      23098.1
+    16    3175811.0       3.1758      21190.9
+    64    4680444.5       4.6804      66734.9
+   256   10608689.0      10.6087     231574.4
+  1024   34653404.5      34.6534     386578.3
+
+--- E2E LOCAL STAGE LATENCY (sample stddev n-1, 30 repetitions) ---
+Stage                 mean_ms     std_ms     n
+---------------------------------------------
+sign_sast              3.6746     0.1681    30
+sign_sca               3.6724     0.1475    30
+sign_config            3.6819     0.1932    30
+sign_secret            3.6149     0.2089    30
+verify                 3.2163     0.1490    30
+gate_evaluate          7.8085     0.1971    30
+
+--- CI JOB MEAN DURATIONS (seconds, skipped jobs excluded) ---
+Job                               Phoenix       Rust
+----------------------------------------------------
+Attest & Deploy Gate                 31.5       29.0
+Build & Test                         59.6       18.0
+Config Scan (Checkov)                37.5       37.0
+SAST (Sobelow)                       59.6          -
+SAST (semgrep)                          -       22.0
+SCA (cargo-audit)                       -       23.0
+SCA (mix audit)                      52.1          -
+Secret Scan (Gitleaks)                4.0        6.0
+
+--- CI PER-REPO SUMMED JOB-SECONDS (mean across runs) ---
+  Note: jobs run partly in parallel; this is 'summed job-seconds', not wall-clock.
+  MemerGamer/Phoenix-DevSecOps-Demo: mean=226.4s over 9 run(s)
+  MemerGamer/Rust-DevSecOps-Demo: mean=135.0s over 1 run(s)
+
+--- EFFICACY (tamper detection) ---
+  Total attack scenarios tested: 9
+  Detected (yes):                9
+  Not detected (no):             0
+  Detection rate:                100.0%
+
+--- KEY SIZES ---
+  Ed25519: sig=64 bytes, pubkey=32 bytes
+  ECDSA-P256: sig=71 bytes, pubkey=65 bytes
+  RSA-2048: sig=256 bytes, pubkey=256 bytes

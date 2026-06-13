@@ -1,0 +1,5 @@
+# Crypto primitive latency (median of 10 runs). sign_us/verify_us/keygen_us in microseconds (3 sig figs).
+idx algo sign_us verify_us keygen_us
+1 Ed25519 21.3 43.6 14.9
+2 ECDSA-P256 24.0 55.4 10.6
+3 RSA-2048 785 24.1 45200

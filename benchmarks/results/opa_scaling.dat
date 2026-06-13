@@ -1,0 +1,8 @@
+# OPA Evaluate scaling: median ns/op and stddev (population) across 10 runs.
+N ns_per_op ms_per_op stddev_ns
+1 2560000 2.56 28900
+4 2710000 2.71 23100
+16 3180000 3.18 21200
+64 4680000 4.68 66700
+256 10600000 10.6 232000
+1024 34700000 34.7 387000
