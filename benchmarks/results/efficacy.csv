@@ -1,0 +1,10 @@
+attack_vector,simulated,detected,mechanism
+positive_clean_chain,clean 4-check chain,yes,ALLOW – all checks present and valid
+result_forgery,flip Result.Passed after signing,yes,Ed25519 signature verification
+replay_stale,timestamps 48h in the past with max-age=24h,yes,max-age window
+wrong_type_signer,SCA attestation signed with SAST key,yes,per-type signer authorization
+policy_swap,swapped policy.rego with different hash,yes,policy-hash pin (SHA-256)
+unauthorized_signer,chain signed with key not in authorized set,yes,Ed25519 signer authorization
+missing_required_check,chain omits 'config' check type,yes,OPA missing_checks policy rule
+chain_reorder_or_duplicate,swapped attestations[0] and [1]; also duplicate insertion,yes,chain linkage digest verification
+json_tampering_detected_by_gate_cli,raw JSON field flip (passed=true→false),yes,Ed25519 signature verification

@@ -1,0 +1,8 @@
+# End-to-end local stage latency. mean_ms and std_ms (sample stddev, n-1) over 30 repetitions.
+idx stage mean_ms std_ms
+1 sign_sast 3.6746 0.1681
+2 sign_sca 3.6724 0.1475
+3 sign_config 3.6819 0.1932
+4 sign_secret 3.6149 0.2089
+5 verify 3.2163 0.1490
+6 gate_evaluate 7.8085 0.1971

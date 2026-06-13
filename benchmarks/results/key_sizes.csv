@@ -1,0 +1,4 @@
+algorithm,sig_bytes,pubkey_bytes
+Ed25519,64,32
+ECDSA-P256,71,65
+RSA-2048,256,256
