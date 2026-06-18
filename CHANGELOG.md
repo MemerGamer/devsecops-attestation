@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2](https://github.com/MemerGamer/devsecops-attestation/compare/v0.3.1...v0.3.2) (2026-06-13)
+
+
+### Tests
+
+* add evaluation benchmark and security-efficacy suite ([3d12154](https://github.com/MemerGamer/devsecops-attestation/commit/3d1215419e648e403d3a69e06f91dcf346384b69))
+* add evaluation benchmark and security-efficacy suite ([9559fcb](https://github.com/MemerGamer/devsecops-attestation/commit/9559fcb83de1084e8cd1b19366d2fb24db22f222))
+
 ## [0.3.1](https://github.com/MemerGamer/devsecops-attestation/compare/v0.3.0...v0.3.1) (2026-05-10)
 
 
