@@ -19,6 +19,8 @@ env:
 jobs:
   # Run the full unit test suite before any security or signing steps.
   test:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -61,6 +63,8 @@ jobs:
 
   # Phase 1 + 2: Run security checks, sign each result, build chain
   security-checks:
+    permissions:
+      contents: read
     needs: test
     runs-on: ubuntu-latest
     if: "github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'"
