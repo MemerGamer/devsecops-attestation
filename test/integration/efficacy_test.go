@@ -293,7 +293,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		realHash := hex.EncodeToString(sum[:])
 
 		// Write a swapped (attacker-controlled) policy.
-		swappedPolicy := strings.ReplaceAll(realPolicy, `required_checks := {"sast", "sca", "config"}`, `required_checks := {"sast"}`)
+		swappedPolicy := strings.ReplaceAll(realPolicy, `required_checks := {"sast", "sca", "config", "secret"}`, `required_checks := {"sast"}`)
 		swappedPolicyPath := filepath.Join(dir, "swapped.rego")
 		if err := os.WriteFile(swappedPolicyPath, []byte(swappedPolicy), 0o644); err != nil {
 			t.Fatal(err)

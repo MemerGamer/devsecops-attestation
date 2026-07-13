@@ -77,6 +77,7 @@ func TestDefaultPolicyRego(t *testing.T) {
 		buildAttestation(types.CheckSAST, true, nil),
 		buildAttestation(types.CheckSCA, true, nil),
 		buildAttestation(types.CheckConfig, true, nil),
+		buildAttestation(types.CheckSecret, true, nil),
 	})
 	if _, err := e.Evaluate(ctx, input); err != nil {
 		t.Errorf("DefaultPolicy failed to compile or evaluate: %v", err)
@@ -94,17 +95,7 @@ func TestEvaluate(t *testing.T) {
 	}{
 		// Allow cases
 		{
-			name: "all three required checks passed, no findings",
-			attestations: []types.Attestation{
-				buildAttestation(types.CheckSAST, true, nil),
-				buildAttestation(types.CheckSCA, true, nil),
-				buildAttestation(types.CheckConfig, true, nil),
-			},
-			wantAllow:   true,
-			wantReasons: []string{"all checks passed"},
-		},
-		{
-			name: "four checks including optional secret scan",
+			name: "all four required checks passed, no findings",
 			attestations: []types.Attestation{
 				buildAttestation(types.CheckSAST, true, nil),
 				buildAttestation(types.CheckSCA, true, nil),
@@ -115,28 +106,43 @@ func TestEvaluate(t *testing.T) {
 			wantReasons: []string{"all checks passed"},
 		},
 		{
-			name: "medium findings only do not block",
+			name: "medium findings on a non-secret check do not block",
 			attestations: []types.Attestation{
 				buildAttestation(types.CheckSAST, true, []types.Finding{
 					{ID: "M1", Severity: types.SeverityMedium, Title: "medium issue"},
 				}),
 				buildAttestation(types.CheckSCA, true, nil),
 				buildAttestation(types.CheckConfig, true, nil),
+				buildAttestation(types.CheckSecret, true, nil),
 			},
 			wantAllow:   true,
 			wantReasons: []string{"all checks passed"},
 		},
 		{
-			name: "high severity findings do not block (policy only blocks critical)",
+			name: "high severity findings on a non-secret check do not block (policy only blocks critical)",
 			attestations: []types.Attestation{
 				buildAttestation(types.CheckSAST, true, []types.Finding{
 					{ID: "H1", Severity: types.SeverityHigh, Title: "high issue"},
 				}),
 				buildAttestation(types.CheckSCA, true, nil),
 				buildAttestation(types.CheckConfig, true, nil),
+				buildAttestation(types.CheckSecret, true, nil),
 			},
 			wantAllow:   true,
 			wantReasons: []string{"all checks passed"},
+		},
+		{
+			name: "any secret-scan finding blocks deployment regardless of severity",
+			attestations: []types.Attestation{
+				buildAttestation(types.CheckSAST, true, nil),
+				buildAttestation(types.CheckSCA, true, nil),
+				buildAttestation(types.CheckConfig, true, nil),
+				buildAttestation(types.CheckSecret, true, []types.Finding{
+					{ID: "S1", Severity: types.SeverityLow, Title: "hardcoded API key"},
+				}),
+			},
+			wantAllow:   false,
+			wantReasons: []string{"hardcoded credential finding"},
 		},
 
 		// Deny cases
@@ -310,6 +316,7 @@ func TestEvaluateFromFile(t *testing.T) {
 		buildAttestation(types.CheckSAST, true, nil),
 		buildAttestation(types.CheckSCA, true, nil),
 		buildAttestation(types.CheckConfig, true, nil),
+		buildAttestation(types.CheckSecret, true, nil),
 	}
 	input := buildInput(allChecks)
 
@@ -407,6 +414,7 @@ func TestAuthorizedSigners(t *testing.T) {
 			buildSignedAttestation(t, types.CheckSAST, true, nil, kp),
 			buildSignedAttestation(t, types.CheckSCA, true, nil, kp),
 			buildSignedAttestation(t, types.CheckConfig, true, nil, kp),
+			buildSignedAttestation(t, types.CheckSecret, true, nil, kp),
 		}
 		input := types.PolicyInput{
 			Subject:      attestations[0].Subject,
@@ -415,6 +423,7 @@ func TestAuthorizedSigners(t *testing.T) {
 				"sast":   pubHex,
 				"sca":    pubHex,
 				"config": pubHex,
+				"secret": pubHex,
 			},
 		}
 
@@ -432,6 +441,7 @@ func TestAuthorizedSigners(t *testing.T) {
 			buildSignedAttestation(t, types.CheckSAST, true, nil, kp),
 			buildSignedAttestation(t, types.CheckSCA, true, nil, kp),
 			buildSignedAttestation(t, types.CheckConfig, true, nil, kp),
+			buildSignedAttestation(t, types.CheckSecret, true, nil, kp),
 		}
 		input := types.PolicyInput{
 			Subject:      attestations[0].Subject,
@@ -458,6 +468,7 @@ func TestAuthorizedSigners(t *testing.T) {
 			buildSignedAttestation(t, types.CheckSAST, true, nil, kp),
 			buildSignedAttestation(t, types.CheckSCA, true, nil, kp),
 			buildSignedAttestation(t, types.CheckConfig, true, nil, kp),
+			buildSignedAttestation(t, types.CheckSecret, true, nil, kp),
 		}
 		input := types.PolicyInput{
 			Subject:      attestations[0].Subject,
@@ -475,11 +486,12 @@ func TestAuthorizedSigners(t *testing.T) {
 	})
 
 	t.Run("partial authorized_signers only checks configured types", func(t *testing.T) {
-		// Only SAST signer is constrained; SCA and Config can use any key.
+		// Only SAST signer is constrained; SCA, Config, and Secret can use any key.
 		attestations := []types.Attestation{
 			buildSignedAttestation(t, types.CheckSAST, true, nil, kp),
 			buildSignedAttestation(t, types.CheckSCA, true, nil, kpOther),   // different key, not constrained
 			buildSignedAttestation(t, types.CheckConfig, true, nil, kpOther), // different key, not constrained
+			buildSignedAttestation(t, types.CheckSecret, true, nil, kpOther), // different key, not constrained
 		}
 		input := types.PolicyInput{
 			Subject:      attestations[0].Subject,

@@ -1,7 +1,8 @@
 # DevSecOps Attestation Deploy Gate Policy
 # Version: 1.0
-# Required checks: sast, sca, config
-# Deny conditions: missing required check, critical finding, failed check
+# Required checks: sast, sca, config, secret
+# Deny conditions: missing required check, critical finding, any secret-scan
+# finding (zero tolerance regardless of severity), failed check
 #
 # This policy is evaluated against a verified attestation chain.
 # The chain must pass signature and linkage checks before this policy runs.
@@ -14,7 +15,7 @@ import future.keywords.in
 
 default allow := false
 
-required_checks := {"sast", "sca", "config"}
+required_checks := {"sast", "sca", "config", "secret"}
 
 ran_checks := {r.result.check_type | r := input.attestations[_]}
 
@@ -28,6 +29,14 @@ allow if {
         a := input.attestations[_]
         f := a.result.findings[_]
         f.severity == "critical"
+    ]) == 0
+
+    # Zero tolerance for hardcoded credentials: any secret-scan finding
+    # blocks deployment regardless of its reported severity.
+    count([f |
+        a := input.attestations[_]
+        a.result.check_type == "secret"
+        f := a.result.findings[_]
     ]) == 0
 
     # All checks passed
@@ -58,6 +67,16 @@ deny_reasons[msg] if {
     ]
     count(findings) > 0
     msg := sprintf("found %d critical finding(s)", [count(findings)])
+}
+
+deny_reasons[msg] if {
+    findings := [f |
+        a := input.attestations[_]
+        a.result.check_type == "secret"
+        f := a.result.findings[_]
+    ]
+    count(findings) > 0
+    msg := sprintf("found %d hardcoded credential finding(s)", [count(findings)])
 }
 
 deny_reasons[msg] if {

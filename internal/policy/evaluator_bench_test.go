@@ -34,12 +34,12 @@ func loadDeployRego(tb testing.TB) string {
 // buildBenchPolicyInput builds a PolicyInput with n attestations.
 // Each attestation uses a unique synthetic check-type ("check-0", "check-1", …)
 // so the deploy.rego "missing required checks" rule fires (the policy expects
-// "sast", "sca", "config") — the benchmark measures evaluation latency rather
-// than the allow/deny outcome, so this is fine.
+// "sast", "sca", "config", "secret") — the benchmark measures evaluation
+// latency rather than the allow/deny outcome, so this is fine.
 //
-// For completeness the first three attestations always use the standard
-// check types required by deploy.rego, so an input of n >= 3 allows
-// deployment.  Attestations 4…n use synthetic names.
+// For completeness the first four attestations always use the standard
+// check types required by deploy.rego, so an input of n >= 4 allows
+// deployment.  Attestations 5…n use synthetic names.
 func buildBenchPolicyInput(n int) types.PolicyInput {
 	now := time.Now().UTC()
 	attestations := make([]types.Attestation, n)
@@ -49,6 +49,7 @@ func buildBenchPolicyInput(n int) types.PolicyInput {
 		types.CheckSAST,
 		types.CheckSCA,
 		types.CheckConfig,
+		types.CheckSecret,
 	}
 
 	for i := 0; i < n; i++ {

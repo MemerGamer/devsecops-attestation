@@ -123,6 +123,7 @@ func TestFullPipelineAllPass(t *testing.T) {
 		{types.CheckSAST, true, nil},
 		{types.CheckSCA, true, nil},
 		{types.CheckConfig, true, nil},
+		{types.CheckSecret, true, nil},
 	})
 
 	// Save and reload to exercise IO path.
@@ -443,7 +444,7 @@ func TestCLIBinariesEndToEnd(t *testing.T) {
 	}
 	_ = kp
 
-	// Step 2: sign sast + sca + config.
+	// Step 2: sign sast + sca + config + secret.
 	checks := []struct {
 		checkType string
 		name      string
@@ -451,6 +452,7 @@ func TestCLIBinariesEndToEnd(t *testing.T) {
 		{"sast", "sast-result.json"},
 		{"sca", "sca-result.json"},
 		{"config", "config-result.json"},
+		{"secret", "secret-result.json"},
 	}
 	for _, c := range checks {
 		resultPath := writeScanResult(t, dir, c.name, true, nil)

@@ -307,7 +307,7 @@ jobs:
             --chain attestation-chain.json \
             --authorized-signers "sast=${{ secrets.SAST_PUBLIC_KEY }},sca=${{ secrets.SCA_PUBLIC_KEY }},config=${{ secrets.CONFIG_PUBLIC_KEY }},secret=${{ secrets.SECRET_SCANNING_PUBLIC_KEY }}" \
             --policy .github/policies/deploy.rego \
-            --policy-hash a93fea4b0b53a2acaf66a82392715ee59c7e37a49dc32a365ab7bbe8dc23f113 \
+            --policy-hash 39dd449347994f378d29acbd64332e83568ca4e444029ee69dcba88d177b18cc \
             --max-age 24h \
             --require-log-entries \
             --output gate-decision.json

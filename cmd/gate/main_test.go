@@ -80,7 +80,7 @@ func TestRunEvaluate(t *testing.T) {
 		dir := t.TempDir()
 		kp, _ := crypto.GenerateKeyPair()
 		chain := buildSignedChain(t, kp, []types.SecurityCheckType{
-			types.CheckSAST, types.CheckSCA, types.CheckConfig,
+			types.CheckSAST, types.CheckSCA, types.CheckConfig, types.CheckSecret,
 		}, nil)
 		chainPath := saveChain(t, dir, chain)
 		outPath := filepath.Join(dir, "decision.json")
@@ -112,7 +112,7 @@ func TestRunEvaluate(t *testing.T) {
 		dir := t.TempDir()
 		kp, _ := crypto.GenerateKeyPair()
 		chain := buildSignedChain(t, kp, []types.SecurityCheckType{
-			types.CheckSAST, types.CheckSCA, types.CheckConfig,
+			types.CheckSAST, types.CheckSCA, types.CheckConfig, types.CheckSecret,
 		}, nil)
 		chainPath := saveChain(t, dir, chain)
 		pubHex := hex.EncodeToString([]byte(kp.PublicKey))
@@ -430,7 +430,7 @@ func TestRunEvaluateTier2(t *testing.T) {
 		dir := t.TempDir()
 		kp, _ := crypto.GenerateKeyPair()
 		chain := buildSignedChain(t, kp, []types.SecurityCheckType{
-			types.CheckSAST, types.CheckSCA, types.CheckConfig,
+			types.CheckSAST, types.CheckSCA, types.CheckConfig, types.CheckSecret,
 		}, nil)
 		chainPath := saveChain(t, dir, chain)
 		pubHex := hex.EncodeToString([]byte(kp.PublicKey))
@@ -438,7 +438,7 @@ func TestRunEvaluateTier2(t *testing.T) {
 		err := runEvaluate(ctx, evaluateFlags{
 			chain:             chainPath,
 			verifySigner:      pubHex,
-			authorizedSigners: "sast=" + pubHex + ",sca=" + pubHex + ",config=" + pubHex,
+			authorizedSigners: "sast=" + pubHex + ",sca=" + pubHex + ",config=" + pubHex + ",secret=" + pubHex,
 		})
 		if err != nil {
 			t.Fatalf("runEvaluate() unexpected error = %v", err)
@@ -490,6 +490,7 @@ func TestRunEvaluateTier2(t *testing.T) {
 		kpSAST, _ := crypto.GenerateKeyPair()
 		kpSCA, _ := crypto.GenerateKeyPair()
 		kpConfig, _ := crypto.GenerateKeyPair()
+		kpSecret, _ := crypto.GenerateKeyPair()
 
 		c := attestation.NewChain()
 		c.Add(types.AttestationSubject{Name: "myapp"}, types.SecurityResult{ //nolint
@@ -504,15 +505,20 @@ func TestRunEvaluateTier2(t *testing.T) {
 			CheckType: types.CheckConfig, Tool: "checkov", TargetRef: "abc123",
 			Passed: true, Findings: []types.Finding{},
 		}, kpConfig)
+		c.Add(types.AttestationSubject{Name: "myapp"}, types.SecurityResult{ //nolint
+			CheckType: types.CheckSecret, Tool: "gitleaks", TargetRef: "abc123",
+			Passed: true, Findings: []types.Finding{},
+		}, kpSecret)
 		chainPath := saveChain(t, dir, c.Attestations())
 
 		sastHex := hex.EncodeToString([]byte(kpSAST.PublicKey))
 		scaHex := hex.EncodeToString([]byte(kpSCA.PublicKey))
 		configHex := hex.EncodeToString([]byte(kpConfig.PublicKey))
+		secretHex := hex.EncodeToString([]byte(kpSecret.PublicKey))
 
 		err := runEvaluate(ctx, evaluateFlags{
 			chain:             chainPath,
-			authorizedSigners: "sast=" + sastHex + ",sca=" + scaHex + ",config=" + configHex,
+			authorizedSigners: "sast=" + sastHex + ",sca=" + scaHex + ",config=" + configHex + ",secret=" + secretHex,
 		})
 		if err != nil {
 			t.Fatalf("runEvaluate() unexpected error = %v", err)
@@ -589,7 +595,7 @@ func TestRunEvaluateTier2(t *testing.T) {
 		kp, _ := crypto.GenerateKeyPair()
 
 		c := attestation.NewChain()
-		for _, ct := range []types.SecurityCheckType{types.CheckSAST, types.CheckSCA, types.CheckConfig} {
+		for _, ct := range []types.SecurityCheckType{types.CheckSAST, types.CheckSCA, types.CheckConfig, types.CheckSecret} {
 			c.SetNextLogEntry("https://example.com/actions/runs/12345")
 			c.Add(types.AttestationSubject{Name: "myapp"}, types.SecurityResult{ //nolint
 				CheckType: ct, Tool: "test-tool", TargetRef: "abc123",
@@ -617,7 +623,7 @@ func TestRunEvaluateViaCobraExecute(t *testing.T) {
 	dir := t.TempDir()
 	kp, _ := crypto.GenerateKeyPair()
 	chain := buildSignedChain(t, kp, []types.SecurityCheckType{
-		types.CheckSAST, types.CheckSCA, types.CheckConfig,
+		types.CheckSAST, types.CheckSCA, types.CheckConfig, types.CheckSecret,
 	}, nil)
 	chainPath := saveChain(t, dir, chain)
 	pubHex := hex.EncodeToString([]byte(kp.PublicKey))

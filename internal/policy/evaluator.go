@@ -31,12 +31,13 @@ import future.keywords.in
 default allow := false
 
 # Allow deployment only when ALL of the following are true:
-#   1. All required check types were run
+#   1. All required check types were run (sast, sca, config, secret)
 #   2. No critical findings exist
-#   3. All checks passed
-#   4. Each check type with a configured authorized signer was signed by that key
+#   3. No secret-scan findings exist (zero tolerance regardless of severity)
+#   4. All checks passed
+#   5. Each check type with a configured authorized signer was signed by that key
 
-required_checks := {"sast", "sca", "config"}
+required_checks := {"sast", "sca", "config", "secret"}
 
 ran_checks := {r.result.check_type | r := input.attestations[_]}
 
@@ -50,6 +51,14 @@ allow if {
         a := input.attestations[_]
         f := a.result.findings[_]
         f.severity == "critical"
+    ]) == 0
+
+    # Zero tolerance for hardcoded credentials: any secret-scan finding
+    # blocks deployment regardless of its reported severity.
+    count([f |
+        a := input.attestations[_]
+        a.result.check_type == "secret"
+        f := a.result.findings[_]
     ]) == 0
 
     # All checks passed
@@ -79,6 +88,16 @@ deny_reasons[msg] if {
     ]
     count(findings) > 0
     msg := sprintf("found %d critical finding(s)", [count(findings)])
+}
+
+deny_reasons[msg] if {
+    findings := [f |
+        a := input.attestations[_]
+        a.result.check_type == "secret"
+        f := a.result.findings[_]
+    ]
+    count(findings) > 0
+    msg := sprintf("found %d hardcoded credential finding(s)", [count(findings)])
 }
 
 deny_reasons[msg] if {
