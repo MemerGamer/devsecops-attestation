@@ -71,6 +71,7 @@ jobs:
           name: coverage-${{ github.sha }}
           path: coverage.txt
           retention-days: 7
+          if-no-files-found: error
 
   # actions/* composite actions are the product this repository ships to
   # consumers. Dogfooding them here (instead of hand-rolled steps) is both
@@ -87,12 +88,23 @@ jobs:
 
       - name: Run SAST (semgrep)
         run: |
+          set -euo pipefail
           pip install --quiet "semgrep==${SEMGREP_VERSION}"
-          # semgrep can exit non-zero on findings depending on rule
-          # severity configuration; `|| true` covers that so only a
-          # crash (no parseable output at all) fails this step. The
-          # pass/fail decision belongs to the gate, not this step.
-          semgrep scan --config auto --json --output semgrep-raw.json . || true
+          rm -f semgrep-raw.json
+          # semgrep scan --json exits 0 both when it finds nothing AND when
+          # it finds something, as long as --error is not passed (which
+          # this invocation deliberately omits: the pass/fail decision
+          # belongs to the gate, not this step, so findings must not fail
+          # the job). A nonzero exit here is therefore always a genuine
+          # scan failure (fatal error, invalid target/pattern/config,
+          # unparseable rule YAML, ...), never "findings", so it is left to
+          # propagate rather than masked with `|| true`.
+          # --disable-nosem: report findings a `# nosemgrep` comment would
+          # otherwise silently suppress in the raw scan output, so a
+          # suppression comment cannot be used to hide a real finding from
+          # the signed attestation (see actions/README.md's "Scanner
+          # configuration trust" section).
+          semgrep scan --config auto --disable-nosem --json --output semgrep-raw.json .
           jq -e . semgrep-raw.json >/dev/null
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -100,6 +112,7 @@ jobs:
           name: sast-raw
           path: semgrep-raw.json
           retention-days: 7
+          if-no-files-found: error
 
   sca:
     permissions:
@@ -123,6 +136,12 @@ jobs:
 
       - name: Run SCA (trivy)
         run: |
+          set -euo pipefail
+          rm -f trivy-raw.json
+          # --exit-code 0 makes trivy always exit 0 for a completed scan,
+          # findings or not (the gate makes the pass/fail decision, not
+          # this step); a nonzero exit is a genuine scan failure and is
+          # left to propagate under the default `bash -e` step shell.
           trivy fs --format json --output trivy-raw.json --scanners vuln --exit-code 0 .
           jq -e . trivy-raw.json >/dev/null
 
@@ -131,6 +150,7 @@ jobs:
           name: sca-raw
           path: trivy-raw.json
           retention-days: 7
+          if-no-files-found: error
 
   config:
     permissions:
@@ -142,11 +162,15 @@ jobs:
 
       - name: Run config check (checkov)
         run: |
+          set -euo pipefail
           pip install --quiet "checkov==${CHECKOV_VERSION}"
-          # --soft-fail makes checkov exit 0 on failed checks; a crash
-          # (no results_json.json produced) is caught below by mv failing.
-          # checkov 3.x writes <output-file-path>/results_json.json, not
-          # results.json, when --output-file-path names a directory.
+          rm -rf checkov-out checkov-raw.json
+          # --soft-fail makes checkov exit 0 on failed checks (the gate
+          # makes the pass/fail decision, not this step); a crash (no
+          # results_json.json produced) is caught below by `mv` failing
+          # under the default `bash -e` step shell. checkov 3.x writes
+          # <output-file-path>/results_json.json, not results.json, when
+          # --output-file-path names a directory.
           checkov -d . --output json --output-file-path checkov-out --quiet --soft-fail --skip-path pkg/normalize/testdata
           mv checkov-out/results_json.json checkov-raw.json
           jq -e . checkov-raw.json >/dev/null
@@ -156,6 +180,7 @@ jobs:
           name: config-raw
           path: checkov-raw.json
           retention-days: 7
+          if-no-files-found: error
 
   secret:
     permissions:
@@ -179,9 +204,14 @@ jobs:
 
       - name: Run secret scan (gitleaks)
         run: |
-          # gitleaks exits 1 when it finds leaks; that is a normal result,
-          # not a crash, so the job must not fail on it. A genuinely broken
-          # invocation (no report file) is caught by the jq check below.
+          set -euo pipefail
+          rm -f gitleaks-raw.json
+          # --exit-code 0 makes gitleaks always exit 0, leaks found or not
+          # (the gate makes the pass/fail decision, not this step); a
+          # nonzero exit is a genuine scan failure and is left to propagate
+          # under the default `bash -e` step shell. The jq check below is a
+          # second line of defense in case a future gitleaks version stops
+          # honoring --exit-code for some failure mode.
           gitleaks detect --report-format json --report-path gitleaks-raw.json --exit-code 0
           jq -e . gitleaks-raw.json >/dev/null
 
@@ -190,6 +220,7 @@ jobs:
           name: secret-raw
           path: gitleaks-raw.json
           retention-days: 7
+          if-no-files-found: error
 
   # Deploy gate: build the attestation tooling from this same checkout,
   # normalize + sign each scanner's raw output, verify the chain, and
@@ -198,7 +229,19 @@ jobs:
     needs: [test, sast, sca, config, secret]
     runs-on: ubuntu-latest
     environment: production
-    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]' }}
+    # This job builds the attestation tooling from source and holds every
+    # signing key secret (SAST_SIGNING_KEY, SCA_SIGNING_KEY, ...). On
+    # pull_request, GitHub exposes secrets to the workflow even for forked
+    # PRs when the base workflow defines them, so a forked PR could exfil
+    # every signing key through a modified pipeline step unless this job is
+    # gated. Only run for push events (this repo's own branches) or a
+    # pull_request whose head repository is this same repository (an
+    # internal branch, not a fork); dependabot/renovate PRs are excluded
+    # the same way the scanner jobs above already are.
+    if: >-
+      (github.event_name == 'push' ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) &&
+      github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     permissions:
       contents: read
       id-token: write
@@ -229,34 +272,66 @@ jobs:
         with:
           version: source
 
+      # Each scanner's raw output is downloaded by its exact artifact name
+      # into its own directory under runner.temp, not merged into a single
+      # directory (let alone the checkout). A `merge-multiple: true`
+      # download lets any artifact silently overwrite a same-named file
+      # from another artifact - including one uploaded by a step this
+      # workflow does not control, if the artifact name pattern is ever
+      # widened - which would let a forged raw report substitute for a real
+      # scanner's output before signing. Downloading by exact name into a
+      # dedicated directory removes that ambiguity entirely.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: "*-raw"
-          merge-multiple: true
+          name: sast-raw
+          path: ${{ runner.temp }}/raw/sast
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sca-raw
+          path: ${{ runner.temp }}/raw/sca
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: config-raw
+          path: ${{ runner.temp }}/raw/config
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: secret-raw
+          path: ${{ runner.temp }}/raw/secret
+
+      # fail-on is passed explicitly here (matching the CLI/action default
+      # of "high") so the effective threshold is legible directly in this
+      # workflow rather than relying on the action's default staying in
+      # sync with the gate's --fail-on-severity below.
       - uses: ./actions/normalize-sign
         with:
           tool: semgrep
-          raw-result: semgrep-raw.json
+          raw-result: ${{ runner.temp }}/raw/sast/semgrep-raw.json
           signing-key: ${{ secrets.SAST_SIGNING_KEY }}
+          fail-on: high
 
       - uses: ./actions/normalize-sign
         with:
           tool: trivy
-          raw-result: trivy-raw.json
+          raw-result: ${{ runner.temp }}/raw/sca/trivy-raw.json
           signing-key: ${{ secrets.SCA_SIGNING_KEY }}
+          fail-on: high
 
       - uses: ./actions/normalize-sign
         with:
           tool: checkov
-          raw-result: checkov-raw.json
+          raw-result: ${{ runner.temp }}/raw/config/checkov-raw.json
           signing-key: ${{ secrets.CONFIG_SIGNING_KEY }}
+          fail-on: high
 
       - uses: ./actions/normalize-sign
         with:
           tool: gitleaks
-          raw-result: gitleaks-raw.json
+          raw-result: ${{ runner.temp }}/raw/secret/gitleaks-raw.json
           signing-key: ${{ secrets.SECRET_SCANNING_SIGNING_KEY }}
+          fail-on: high
 
       # policy-hash pins the SHA-256 of the bundled deploy.rego, recomputed
       # with `go run ./cmd/gate policy-hash` (see also `make policy-hash`
@@ -276,7 +351,9 @@ jobs:
             sca=${{ secrets.SCA_PUBLIC_KEY }},
             config=${{ secrets.CONFIG_PUBLIC_KEY }},
             secret=${{ secrets.SECRET_SCANNING_PUBLIC_KEY }}
-          policy-hash: 12b2aa70d8610eafbe248a0a7880db7c2ec1b81f933c352f1fcd2514cd4c5d58
+          policy-hash: d90ce4eb57a3ce0b208037dba73c10959f5e2d16b2f418311da2fe117074aa0a
+          fail-on-severity: high
+          target-ref: ${{ github.sha }}
           max-age: 24h
           require-log-entries: "true"
           output: gate-decision.json
@@ -290,6 +367,7 @@ jobs:
             attestation-chain.json
             gate-decision.json
           retention-days: 90
+          if-no-files-found: error
 
       - name: Build release binaries
         run: |
@@ -324,6 +402,7 @@ jobs:
           name: release-${{ github.sha }}
           path: release/
           retention-days: 30
+          if-no-files-found: error
 
   # Exercises actions/test/run-local.sh (build from source, sign, verify,
   # gate, shellcheck, action.yml YAML validation) on every PR, so a change

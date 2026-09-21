@@ -157,24 +157,40 @@ not duplicated here. The essential shape is:
 jobs:
   sast:
     steps:
-      - run: semgrep --config auto --json --output semgrep-results.json .
+      - run: |
+          set -euo pipefail
+          rm -f semgrep-results.json
+          semgrep --config auto --disable-nosem --json --output semgrep-results.json .
       - uses: actions/upload-artifact@v4
-        with: { name: sast-raw, path: semgrep-results.json }
-  # ... sca, config, secret jobs follow the same pattern
+        with: { name: sast-raw, path: semgrep-results.json, if-no-files-found: error }
+  # ... sca, config, secret jobs follow the same pattern: rm -f the output
+  # file first, no continue-on-error / || true masking a crash (the tool's
+  # own findings-vs-crash exit code semantics decide that), and
+  # if-no-files-found: error on the upload.
 
   deploy-gate:
     needs: [sast, sca, config, secret]
+    # Excludes forks and dependabot/renovate: this job holds the signing
+    # key secrets. See actions/README.md's "Deploy gate secret exposure".
+    if: >-
+      (github.event_name == 'push' ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) &&
+      github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     steps:
-      - uses: actions/checkout@v4
+      # No checkout: only the released binaries are needed here.
       - uses: MemerGamer/devsecops-attestation/actions/setup@v0.4.0
         with: { version: "1.2.3" }
+      # Each artifact downloaded by exact name into its own directory, not
+      # merged, so one artifact cannot silently overwrite another's file.
       - uses: actions/download-artifact@v4
-        with: { pattern: "*-raw", merge-multiple: true }
+        with: { name: sast-raw, path: ${{ runner.temp }}/raw/sast }
+      # ... one download-artifact step per scanner artifact
       - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: semgrep
-          raw-result: semgrep-results.json
+          raw-result: ${{ runner.temp }}/raw/sast/semgrep-results.json
           signing-key: ${{ secrets.SAST_SIGNING_KEY }}
+          fail-on: high
       # ... one normalize-sign step per scanner
       - uses: MemerGamer/devsecops-attestation/actions/gate@v0.4.0
         with:
@@ -182,7 +198,13 @@ jobs:
           authorized-signers: >-
             sast=${{ vars.SAST_PUBLIC_KEY }},sca=${{ vars.SCA_PUBLIC_KEY }},
             config=${{ vars.CONFIG_PUBLIC_KEY }},secret=${{ vars.SECRET_PUBLIC_KEY }}
+          fail-on-severity: high
+          target-ref: ${{ github.sha }}
 ```
+
+See [`actions/README.md`](../actions/README.md#scanner-configuration-trust)
+for why each of these steps is shaped this way ("report substitution" and
+scanner configuration trust), and for the full worked example.
 
 ## Adding a Scanner
 

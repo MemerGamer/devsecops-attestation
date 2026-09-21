@@ -282,11 +282,21 @@ compute it with `go run ./cmd/gate config-hash` using the same flags. The
 bundled workflow uses the default configuration, so no `--config-hash` is
 needed there.
 
-**4. Production environment (optional):**
+**4. Production environment (recommended):**
 
-The `deploy-gate` job targets the `production` environment, which can be
-configured to require manual approval before deployment. Set this up under
-**Settings > Environments > production > Required reviewers**.
+The `deploy-gate` job holds every signing key secret and targets the
+`production` environment. Configure it as a **protected environment** under
+**Settings > Environments > production**: required reviewers add a human
+approval gate in front of the job that holds the signing keys, and
+deployment branch restrictions (limit to `main`) stop the environment's
+secrets from being reachable at all from a branch that is not `main`. This
+is independent of, and in addition to, the `if:` condition already on
+`deploy-gate` that excludes pull requests from forks and
+dependabot/renovate (see "Zero-Trust Design" above and
+[`actions/README.md`](actions/README.md#deploy-gate-secret-exposure)); the
+`if:` guard is enforced by the workflow file itself and could in principle
+be edited, while environment protection rules are enforced by GitHub
+independent of the workflow YAML.
 
 **Consuming this pipeline from another repository:** you do not need to
 clone or build this repository to use its attestation pipeline. Reference

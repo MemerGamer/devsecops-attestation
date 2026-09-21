@@ -136,6 +136,16 @@ policy deny.
 
 ## Consumer workflow example
 
+This example follows the hardening this repository's own pipeline
+(`.github/workflows/devsecops-pipeline.yml`) applies to itself: no
+`continue-on-error` masking a scanner crash, each output file removed
+before the scanner runs so a stale file from a previous run cannot be
+mistaken for this run's output, `if-no-files-found: error` on every upload
+so a missing report fails loudly instead of silently uploading nothing, and
+each artifact downloaded by its exact `name:` into its own directory rather
+than merged into a shared one. See "Scanner configuration trust" below for
+why these matter and what report substitution looks like without them.
+
 ```yaml
 name: devsecops-pipeline
 on:
@@ -147,86 +157,120 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: semgrep --config auto --json --output semgrep-results.json .
-        continue-on-error: true
+      - run: |
+          set -euo pipefail
+          rm -f semgrep-results.json
+          # No --error, so exit 0 covers both "no findings" and "some
+          # findings"; a nonzero exit is a genuine scan failure and is
+          # left to fail the step (the gate decides pass/fail, not this
+          # step). --disable-nosem: report findings a `# nosemgrep`
+          # comment would otherwise suppress, so a suppression comment in
+          # the repo cannot hide a real finding from the signed report.
+          semgrep --config auto --disable-nosem --json --output semgrep-results.json .
       - uses: actions/upload-artifact@v4
         with:
           name: sast-raw
           path: semgrep-results.json
+          if-no-files-found: error
 
   sca:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: trivy fs --format json --output trivy-results.json .
-        continue-on-error: true
+      - run: |
+          set -euo pipefail
+          rm -f trivy-results.json
+          trivy fs --format json --output trivy-results.json --exit-code 0 .
       - uses: actions/upload-artifact@v4
         with:
           name: sca-raw
           path: trivy-results.json
+          if-no-files-found: error
 
   config:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: |
-          checkov -d . --output json --output-file-path checkov-out
+          set -euo pipefail
+          rm -rf checkov-out checkov-results.json
+          checkov -d . --output json --output-file-path checkov-out --soft-fail
           mv checkov-out/results_json.json checkov-results.json
-        continue-on-error: true
       - uses: actions/upload-artifact@v4
         with:
           name: config-raw
           path: checkov-results.json
+          if-no-files-found: error
 
   secret:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: gitleaks detect --report-format json --report-path gitleaks-results.json
-        continue-on-error: true
+      - run: |
+          set -euo pipefail
+          rm -f gitleaks-results.json
+          gitleaks detect --report-format json --report-path gitleaks-results.json --exit-code 0
       - uses: actions/upload-artifact@v4
         with:
           name: secret-raw
           path: gitleaks-results.json
+          if-no-files-found: error
 
   deploy-gate:
     needs: [sast, sca, config, secret]
     runs-on: ubuntu-latest
+    # Excludes forks and dependabot/renovate: this job holds every signing
+    # key secret, so it must not run for a pull_request whose head is not
+    # this same repository. See "Deploy gate secret exposure" below.
+    if: >-
+      (github.event_name == 'push' ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) &&
+      github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     steps:
-      - uses: actions/checkout@v4
-
+      # No checkout here: this job only needs the released binaries
+      # (version: "1.2.3" below, not "source"), not this repository's
+      # source. Add one only if your gate step also needs repo files, e.g.
+      # a custom --policy or --data file.
       - uses: MemerGamer/devsecops-attestation/actions/setup@v0.4.0
         with:
           version: "1.2.3"
 
       - uses: actions/download-artifact@v4
-        with:
-          pattern: "*-raw"
-          merge-multiple: true
+        with: { name: sast-raw, path: ${{ runner.temp }}/raw/sast }
+      - uses: actions/download-artifact@v4
+        with: { name: sca-raw, path: ${{ runner.temp }}/raw/sca }
+      - uses: actions/download-artifact@v4
+        with: { name: config-raw, path: ${{ runner.temp }}/raw/config }
+      - uses: actions/download-artifact@v4
+        with: { name: secret-raw, path: ${{ runner.temp }}/raw/secret }
 
       - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: semgrep
-          raw-result: semgrep-results.json
+          raw-result: ${{ runner.temp }}/raw/sast/semgrep-results.json
           signing-key: ${{ secrets.SAST_SIGNING_KEY }}
+          fail-on: high
 
       - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: trivy
-          raw-result: trivy-results.json
+          raw-result: ${{ runner.temp }}/raw/sca/trivy-results.json
           signing-key: ${{ secrets.SCA_SIGNING_KEY }}
+          fail-on: high
 
       - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: checkov
-          raw-result: checkov-results.json
+          raw-result: ${{ runner.temp }}/raw/config/checkov-results.json
           signing-key: ${{ secrets.CONFIG_SIGNING_KEY }}
+          fail-on: high
 
       - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: gitleaks
-          raw-result: gitleaks-results.json
+          raw-result: ${{ runner.temp }}/raw/secret/gitleaks-results.json
           signing-key: ${{ secrets.SECRET_SIGNING_KEY }}
+          fail-on: high
 
       - uses: MemerGamer/devsecops-attestation/actions/gate@v0.4.0
         with:
@@ -236,6 +280,10 @@ jobs:
             sca=${{ vars.SCA_PUBLIC_KEY }},
             config=${{ vars.CONFIG_PUBLIC_KEY }},
             secret=${{ vars.SECRET_PUBLIC_KEY }}
+          fail-on-severity: high
+          # target-ref defaults to ${{ github.sha }} already; shown here
+          # for legibility.
+          target-ref: ${{ github.sha }}
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -244,7 +292,66 @@ jobs:
           path: |
             attestation-chain.json
             gate-decision.json
+          if-no-files-found: error
 ```
+
+### Scanner configuration trust
+
+Every scanner in the jobs above honours in-repo suppression files it finds
+during its own checkout: `.gitleaks.toml` allowlists, `.checkov.yaml`
+`skip-check` entries, `# nosemgrep` comments, `.semgrepignore`, and
+`.trivyignore`. Anyone who can open a pull request that edits one of those
+files (or plants a `# nosemgrep` comment next to a real vulnerability) can
+suppress a finding before it ever reaches the signed attestation - the
+scanner step itself never sees it, so no amount of hardening downstream of
+the scanner recovers it. This is a different, earlier trust boundary than
+the "report substitution" concerns the changes above address (a forged
+*output* file); this is about influencing what the scanner produces in the
+first place.
+
+Mitigate this the same way you would any other change to CI-trusted
+configuration:
+
+- **CODEOWNERS** on `.gitleaks.toml`, `.checkov.yaml`, `.semgrepignore`,
+  `.trivyignore`, and any custom `data.config` / `--data` file the gate
+  reads, so a suppression change requires review from someone who owns the
+  security posture, not just anyone with write access to the branch.
+- **Pin a trusted, out-of-band config** the scanner step reads instead of
+  (or in addition to) the one checked out with the PR - `gitleaks --config
+  <trusted-path>`, semgrep `--disable-nosem` (already used above, which
+  ignores `# nosemgrep` entirely rather than trusting it), trivy
+  `--ignorefile <trusted-path>`, checkov `--config-file <trusted-path>`.
+  A config fetched from a separate, protected location (a release asset,
+  an organization-level repository) cannot be altered by a PR against this
+  repository.
+- **Protect the signing environment** (see `environment: production` on
+  `deploy-gate` in this repository's own workflow, and "Deploy gate secret
+  exposure" below): even a suppressed finding still has to pass through
+  signing before it reaches a decision, so required reviewers on the
+  environment that holds the signing keys are a second checkpoint
+  independent of the scanner configuration.
+
+### Deploy gate secret exposure
+
+The `deploy-gate` job above builds the attestation tooling and handles every
+signing key secret (`SAST_SIGNING_KEY`, `SCA_SIGNING_KEY`, ...). GitHub
+exposes secrets to `pull_request`-triggered jobs even for forked PRs when
+the base repository's workflow defines them, so without a guard, a forked
+PR that modifies this workflow (or a dependency it pulls in) could exfiltrate
+every signing key. The `if:` on `deploy-gate` above restricts it to `push`
+events and to `pull_request` events whose head repository is this same
+repository (i.e., not a fork), and excludes dependabot/renovate PRs the same
+way the scanner jobs already are.
+
+Additionally, configure the environment referenced by `deploy-gate` (e.g.
+`production`, as this repository's own pipeline does) as a **protected
+GitHub environment** with required reviewers and, ideally, deployment
+branch restrictions limited to `main`. This adds a human approval gate in
+front of the job that holds the signing keys, independent of the `if:`
+condition above. Configuring the environment itself is a repository
+settings change, not something this composite action or workflow file can
+enforce - see `SECURITY.md` for the recommendation in this repository's own
+context.
 
 ### Forgejo usage
 
