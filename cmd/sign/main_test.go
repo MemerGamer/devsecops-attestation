@@ -400,14 +400,17 @@ func TestRunSign(t *testing.T) {
 		chainPath := filepath.Join(dir, "chain.json")
 		privHex, _ := generateTestKey(t)
 
+		// Disable CI environment defaults so the result does not depend on
+		// whether GITHUB_* variables are set (they are on CI runners).
 		err := runSign(ctx, signFlags{
-			checkType:  "sast",
-			tool:       "semgrep",
-			resultFile: resultFile,
-			targetRef:  "abc123",
-			subject:    "myapp",
-			signingKey: privHex,
-			chain:      chainPath,
+			checkType:     "sast",
+			tool:          "semgrep",
+			resultFile:    resultFile,
+			targetRef:     "abc123",
+			subject:       "myapp",
+			signingKey:    privHex,
+			chain:         chainPath,
+			noEnvDefaults: true,
 		})
 		if err != nil {
 			t.Fatalf("runSign() error = %v", err)
