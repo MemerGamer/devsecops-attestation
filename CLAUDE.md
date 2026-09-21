@@ -115,7 +115,7 @@ cmd/gate/           -- CLI: verify chain, authorize signers, enforce log entries
                          check policy hash, evaluate OPA policy
 test/integration/   -- integration tests (build tag: integration)
 .github/workflows/  -- GitHub Actions pipeline
-.github/policies/   -- Rego policy files
+policies/           -- canonical Rego policy files, embedded into internal/policy via go:embed
 ```
 
 ## PhD Extension Points

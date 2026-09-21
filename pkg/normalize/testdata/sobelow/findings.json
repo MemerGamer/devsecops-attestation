@@ -1,0 +1,30 @@
+{
+  "sobelow_version": "0.13.0",
+  "total_findings": 3,
+  "findings": {
+    "high_confidence": [
+      {
+        "type": "SQL injection",
+        "file": "lib/myapp_web/controllers/user_controller.ex",
+        "line": 42,
+        "variable": "params[\"id\"]"
+      }
+    ],
+    "medium_confidence": [
+      {
+        "type": "XSS",
+        "file": "lib/myapp_web/templates/page/index.html.eex",
+        "line": 10,
+        "variable": "raw(@content)"
+      }
+    ],
+    "low_confidence": [
+      {
+        "type": "Config secrets",
+        "file": "config/config.exs",
+        "line": 5,
+        "variable": ""
+      }
+    ]
+  }
+}

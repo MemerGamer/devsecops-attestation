@@ -50,7 +50,9 @@ flowchart TB
 
 > **Note:** `LogEntry` currently stores the GitHub Actions run URL as a transparency
 > log reference. Submission to an external transparency log (e.g. Rekor/Sigstore) is
-> a planned PhD-phase extension.
+> a planned PhD-phase extension. `--require-log-entries` checks only that
+> `LogEntry` is non-empty; it is excluded from the canonical payload, so it is a
+> non-authenticated reference until inclusion proofs are verified (see SECURITY.md).
 
 Each attestation is an Ed25519-signed JSON envelope. Attestations are chained:
 each one includes the SHA-256 digest of the previous (including its signature),
@@ -72,8 +74,10 @@ making insertion, deletion, or reordering detectable.
    c. Signer authorization - verifies each attestation was signed by the
       key authorized for its check type (`--authorized-signers`) or that all
       attestations use a single shared key (`--verify-signer`).
+   c.1. Commit binding - if `--target-ref` (and/or `--subject`) is set, every
+      attestation's `result.target_ref` (and/or `subject.name`) must equal it.
    d. Log entry enforcement - if `--require-log-entries` is set, every
-      attestation must carry a non-empty `LogEntry`.
+      attestation must carry a non-empty `LogEntry` (presence only).
    e. Policy file integrity - if `--policy-hash` is set, the SHA-256 of the
       Rego policy file is verified before it is loaded.
    f. OPA policy evaluation - the verified, authorized chain is evaluated

@@ -81,7 +81,9 @@ flowchart TB
 | `--policy` | no | Path to Rego policy file (uses built-in policy if omitted) |
 | `--policy-hash` | no | Expected SHA-256 hex of the policy file; requires `--policy` |
 | `--max-age` | no | Maximum allowed attestation age (e.g. `24h`) |
-| `--require-log-entries` | no | Fail if any attestation lacks a `log_entry` field |
+| `--require-log-entries` | no | Fail if any attestation lacks a `log_entry` field (presence only; see SECURITY.md) |
+| `--target-ref` | no | Every attestation's `result.target_ref` must equal this value (commit binding) |
+| `--subject` | no | Every attestation's `subject.name` must equal this value |
 | `--output` | no | Write `GateDecision` JSON to this path |
 
 **Note:** exactly one of `--verify-signer` or `--authorized-signers` must be provided.
@@ -97,9 +99,15 @@ production configuration.
   reference, not part of the security proof.
 - `Digest` covers the full attestation including its signature, so the chain link
   depends on the cryptographic proof as well as the payload.
-- `VerifyChainWithOptions` runs seven checks in sequence: Ed25519 signature,
-  chain linkage, subject consistency, no future timestamps, monotonic timestamps,
-  max-age, and no duplicate check types. All checks run before any policy evaluation.
+- `VerifyChainWithOptions` runs eight checks in sequence: Ed25519 signature,
+  chain linkage, subject consistency, target-ref consistency, no future timestamps,
+  monotonic timestamps, max-age, and no duplicate check types. All checks run
+  before any policy evaluation.
+- `log_entry` is a non-authenticated reference: `--require-log-entries` only
+  checks that it is non-empty, and `LogEntry` is excluded from the canonical
+  payload, so it carries no cryptographic binding to the attestation. `SignerID`
+  is signed but not policy-checked; signer authorization is enforced through the
+  signing key, not this string. See SECURITY.md for both.
 - The `Chain` type uses a "one-shot" pattern for `SetNextSignerID` and
   `SetNextLogEntry`: the value is consumed by the next `Add` call and then reset
   to `""`, so subsequent calls are unaffected.

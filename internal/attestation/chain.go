@@ -22,9 +22,9 @@ import (
 
 // Chain holds an ordered sequence of attestations for a single pipeline run.
 type Chain struct {
-	attestations  []types.Attestation
-	nextSignerID  string
-	nextLogEntry  string
+	attestations []types.Attestation
+	nextSignerID string
+	nextLogEntry string
 }
 
 // NewChain creates an empty chain.
@@ -154,10 +154,14 @@ func VerifyChain(attestations []types.Attestation) ([]VerificationResult, error)
 //  1. Ed25519 signature integrity (crypto.Verify)
 //  2. Chain linkage: each PreviousDigest matches the actual digest of the preceding attestation
 //  3. Subject consistency: all attestations share the subject of the first
-//  4. No future timestamps (within ClockSkewTolerance, default 60 s)
-//  5. Monotonically non-decreasing timestamps along the chain
-//  6. Maximum attestation age (only when opts.MaxAge > 0)
-//  7. No duplicate check types within the chain
+//  4. Target-ref consistency: all attestations share the result.target_ref
+//     of the first (binds every check in the chain to a single commit or
+//     artifact digest; a chain cannot mix attestations produced against
+//     different revisions)
+//  5. No future timestamps (within ClockSkewTolerance, default 60 s)
+//  6. Monotonically non-decreasing timestamps along the chain
+//  7. Maximum attestation age (only when opts.MaxAge > 0)
+//  8. No duplicate check types within the chain
 //
 // It returns a result per attestation so callers can report granular failures,
 // and a top-level error if any check fails.
@@ -235,7 +239,17 @@ func VerifyChainWithOptions(attestations []types.Attestation, opts VerifyOptions
 			))
 		}
 
-		// 4. No future timestamps (beyond clock skew tolerance).
+		// 4. Target-ref consistency: all attestations must share the first
+		// attestation's result.target_ref, so the chain cannot mix checks
+		// that ran against different commits or artifact digests.
+		if i > 0 && a.Result.TargetRef != attestations[0].Result.TargetRef {
+			recordChainErr(fmt.Errorf(
+				"target ref mismatch at position %d: got %q, want %q",
+				i, a.Result.TargetRef, attestations[0].Result.TargetRef,
+			))
+		}
+
+		// 5. No future timestamps (beyond clock skew tolerance).
 		if a.Timestamp.After(now.Add(skew)) {
 			recordChainErr(fmt.Errorf(
 				"attestation %d timestamp %v is in the future (reference %v, tolerance %v)",
@@ -243,7 +257,7 @@ func VerifyChainWithOptions(attestations []types.Attestation, opts VerifyOptions
 			))
 		}
 
-		// 5. Timestamps must be monotonically non-decreasing.
+		// 6. Timestamps must be monotonically non-decreasing.
 		if i > 0 && a.Timestamp.Before(attestations[i-1].Timestamp) {
 			recordChainErr(fmt.Errorf(
 				"timestamp regression at position %d: %v precedes position %d's %v",
@@ -251,7 +265,7 @@ func VerifyChainWithOptions(attestations []types.Attestation, opts VerifyOptions
 			))
 		}
 
-		// 6. Maximum attestation age (optional).
+		// 7. Maximum attestation age (optional).
 		if opts.MaxAge > 0 && now.Sub(a.Timestamp) > opts.MaxAge {
 			recordChainErr(fmt.Errorf(
 				"attestation %d is too old: age %v exceeds maximum %v",
@@ -259,7 +273,7 @@ func VerifyChainWithOptions(attestations []types.Attestation, opts VerifyOptions
 			))
 		}
 
-		// 7. No duplicate check types.
+		// 8. No duplicate check types.
 		if prev, ok := seenCheckTypes[a.Result.CheckType]; ok {
 			recordChainErr(fmt.Errorf(
 				"duplicate check type %q at positions %d and %d",

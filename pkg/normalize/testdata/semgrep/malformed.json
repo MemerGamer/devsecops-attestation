@@ -1,0 +1,3 @@
+{
+  "results": [
+    { "check_id": "broken.rule", "path": "src/x.py", "start": { "line": 1

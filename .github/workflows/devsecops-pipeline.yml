@@ -23,15 +23,15 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26'
 
       - name: Cache Go modules and build cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cache/go-build
@@ -49,40 +49,54 @@ jobs:
         run: go test -race ./...
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.txt
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-${{ github.sha }}
           path: coverage.txt
           retention-days: 7
 
   # Phase 1 + 2: Run security checks, sign each result, build chain
+  # This job holds every signing key secret (SAST_SIGNING_KEY, ...). On
+  # pull_request, GitHub exposes secrets to the workflow even for forked
+  # PRs when the base workflow defines them, so a forked PR could exfil
+  # every signing key through a modified pipeline step unless this job is
+  # gated. Only run for push events (this repo's own branches) or a
+  # pull_request whose head repository is this same repository (an
+  # internal branch, not a fork); dependabot/renovate PRs are excluded the
+  # same way.
   security-checks:
     permissions:
       contents: read
     needs: test
     runs-on: ubuntu-latest
-    if: "github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'"
+    if: >-
+      (github.event_name == 'push' ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) &&
+      github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     env:
       GITLEAKS_VERSION: '8.21.2'
+      TRIVY_VERSION: '0.74.0'
+      SEMGREP_VERSION: '1.177.0'
+      CHECKOV_VERSION: '3.3.19'
     outputs:
       chain-artifact: ${{ steps.upload-chain.outputs.artifact-id }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26'
 
       - name: Cache Go modules and build cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cache/go-build
@@ -102,32 +116,34 @@ jobs:
       # SAST
       - name: Run SAST (semgrep)
         id: sast
-        continue-on-error: true
         run: |
-          echo '{"passed":true,"findings":[]}' > sast-results.json
-          pip install --quiet semgrep
-          semgrep scan --json --output semgrep-raw.json --no-error-on-empty-scan . || true
-          if jq -e . semgrep-raw.json >/dev/null 2>&1; then
-            jq '{
-              passed: ((.results // []) | length) == 0,
-              findings: [(.results // [])[] | {
-                id: .check_id,
-                severity: (.extra.severity | if . == "ERROR" then "critical"
-                                             elif . == "WARNING" then "high"
-                                             else "medium" end),
-                title: .extra.message,
-                location: (.path + ":" + (.start.line | tostring))
-              }]
-            }' semgrep-raw.json > sast-results.json
-          fi
+          set -euo pipefail
+          pip install --quiet "semgrep==${SEMGREP_VERSION}"
+          rm -f semgrep-raw.json
+          # semgrep scan --json exits 0 both when it finds nothing AND when
+          # it finds something, as long as --error is not passed (which
+          # this invocation deliberately omits: the pass/fail decision
+          # belongs to the gate, not this step, so findings must not fail
+          # the job). A nonzero exit here is therefore always a genuine
+          # scan failure, never "findings", so it is left to propagate.
+          # --disable-nosem: report findings a `# nosemgrep` comment would
+          # otherwise silently suppress in the raw scan output, so a
+          # suppression comment cannot be used to hide a real finding from
+          # the signed attestation. --metrics=off is deliberately not
+          # passed: semgrep 1.177.0 refuses to resolve --config auto with
+          # metrics disabled ("Cannot create auto config when metrics are
+          # off"), confirmed by running this exact command locally; #37's
+          # workflow (feat/composite-actions) omits it for the same reason.
+          semgrep scan --config auto --disable-nosem --json --output semgrep-raw.json .
+          jq -e . semgrep-raw.json >/dev/null
+          test -s semgrep-raw.json
 
       - name: Sign SAST attestation
         run: |
           ./bin/attest sign \
-            --check-type sast \
-            --tool semgrep \
+            --tool-format semgrep \
             --tool-version "$(semgrep --version 2>/dev/null || echo unknown)" \
-            --result sast-results.json \
+            --result semgrep-raw.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
             --signing-key "${{ secrets.SAST_SIGNING_KEY }}" \
@@ -136,35 +152,37 @@ jobs:
             --chain attestation-chain.json
 
       # SCA
+      - name: Install trivy (pinned release, checksum-verified)
+        run: |
+          set -euo pipefail
+          asset="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          checksums="trivy_${TRIVY_VERSION}_checksums.txt"
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          curl -sfLO "${base}/${asset}"
+          curl -sfLO "${base}/${checksums}"
+          sha256sum --ignore-missing -c "${checksums}"
+          tar xzf "${asset}" trivy
+          sudo install -m 0755 trivy /usr/local/bin/trivy
+
       - name: Run SCA (trivy)
         id: sca
-        continue-on-error: true
         run: |
-          echo '{"passed":true,"findings":[]}' > sca-results.json
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b /usr/local/bin || true
-          trivy fs --format json --output trivy-raw.json . || true
-          if jq -e . trivy-raw.json >/dev/null 2>&1; then
-            jq '{
-              passed: (([(.Results // [])[]? | (.Vulnerabilities // [])[]
-                         | select(.Severity == "CRITICAL" or .Severity == "HIGH")]
-                        | length) == 0),
-              findings: [(.Results // [])[]? | (.Vulnerabilities // [])[] | {
-                id: .VulnerabilityID,
-                severity: (.Severity | ascii_downcase),
-                title: (.Title // .VulnerabilityID),
-                location: .PkgName
-              }]
-            }' trivy-raw.json > sca-results.json
-          fi
+          set -euo pipefail
+          rm -f trivy-raw.json
+          # --exit-code 0 makes trivy always exit 0 for a completed scan,
+          # findings or not (the gate makes the pass/fail decision, not
+          # this step); a nonzero exit is a genuine scan failure and is
+          # left to propagate.
+          trivy fs --format json --output trivy-raw.json --scanners vuln --exit-code 0 .
+          jq -e . trivy-raw.json >/dev/null
+          test -s trivy-raw.json
 
       - name: Sign SCA attestation
         run: |
           ./bin/attest sign \
-            --check-type sca \
-            --tool trivy \
+            --tool-format trivy \
             --tool-version "$(trivy --version 2>/dev/null | head -1 || echo unknown)" \
-            --result sca-results.json \
+            --result trivy-raw.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
             --signing-key "${{ secrets.SCA_SIGNING_KEY }}" \
@@ -175,31 +193,26 @@ jobs:
       # Config / IaC
       - name: Run config check (checkov)
         id: config
-        continue-on-error: true
         run: |
-          echo '{"passed":true,"findings":[]}' > config-results.json
-          pip install --quiet checkov
-          checkov -d . --output json --output-file-path . --quiet || true
-          mv results.json checkov-raw.json 2>/dev/null || echo 'null' > checkov-raw.json
-          if jq -e . checkov-raw.json >/dev/null 2>&1; then
-            jq '{
-              passed: ((.results.failed_checks // []) | length) == 0,
-              findings: [(.results.failed_checks // [])[] | {
-                id: .check_id,
-                severity: "medium",
-                title: (.check_id + ": " + (.check_type // "config")),
-                location: (.file_path // "unknown")
-              }]
-            }' checkov-raw.json > config-results.json
-          fi
+          set -euo pipefail
+          pip install --quiet "checkov==${CHECKOV_VERSION}"
+          rm -rf checkov-out checkov-raw.json
+          # --soft-fail makes checkov exit 0 on failed checks (the gate
+          # makes the pass/fail decision, not this step); a crash (no
+          # results_json.json produced) is caught below by `mv` failing.
+          # checkov 3.x writes <output-file-path>/results_json.json, not
+          # results.json, when --output-file-path names a directory.
+          checkov -d . --output json --output-file-path checkov-out --quiet --soft-fail --skip-path pkg/normalize/testdata
+          mv checkov-out/results_json.json checkov-raw.json
+          jq -e . checkov-raw.json >/dev/null
+          test -s checkov-raw.json
 
       - name: Sign config attestation
         run: |
           ./bin/attest sign \
-            --check-type config \
-            --tool checkov \
+            --tool-format checkov \
             --tool-version "$(checkov --version 2>/dev/null || echo unknown)" \
-            --result config-results.json \
+            --result checkov-raw.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
             --signing-key "${{ secrets.CONFIG_SIGNING_KEY }}" \
@@ -208,35 +221,39 @@ jobs:
             --chain attestation-chain.json
 
       # Secret scan
+      - name: Install gitleaks (pinned release, checksum-verified)
+        run: |
+          set -euo pipefail
+          asset="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          checksums="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -sfLO "${base}/${asset}"
+          curl -sfLO "${base}/${checksums}"
+          sha256sum --ignore-missing -c "${checksums}"
+          tar xzf "${asset}" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+
       - name: Run secret scan (gitleaks)
         id: secrets
-        continue-on-error: true
         run: |
-          echo '{"passed":true,"findings":[]}' > secret-results.json
-          wget -qO- \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | tar xz gitleaks || true
-          sudo mv gitleaks /usr/local/bin/ 2>/dev/null || true
-          gitleaks detect --report-format json --report-path gitleaks-raw.json || true
-          if jq -e 'if . == null then empty else . end' gitleaks-raw.json >/dev/null 2>&1; then
-            jq '{
-              passed: (length == 0),
-              findings: [.[] | {
-                id: .RuleID,
-                severity: "high",
-                title: .Description,
-                location: (.File + ":" + (.StartLine | tostring))
-              }]
-            }' gitleaks-raw.json > secret-results.json
-          fi
+          set -euo pipefail
+          rm -f gitleaks-raw.json
+          # --exit-code 0 makes gitleaks always exit 0, leaks found or not
+          # (the gate makes the pass/fail decision, not this step); a
+          # nonzero exit is a genuine scan failure and is left to
+          # propagate. The jq check below is a second line of defense in
+          # case a future gitleaks version stops honoring --exit-code for
+          # some failure mode.
+          gitleaks detect --report-format json --report-path gitleaks-raw.json --exit-code 0
+          jq -e . gitleaks-raw.json >/dev/null
+          test -s gitleaks-raw.json
 
       - name: Sign secret scan attestation
         run: |
           ./bin/attest sign \
-            --check-type secret \
-            --tool gitleaks \
+            --tool-format gitleaks \
             --tool-version "$(gitleaks version 2>/dev/null || echo unknown)" \
-            --result secret-results.json \
+            --result gitleaks-raw.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
             --signing-key "${{ secrets.SECRET_SCANNING_SIGNING_KEY }}" \
@@ -251,33 +268,38 @@ jobs:
 
       - name: Upload attestation chain
         id: upload-chain
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: attestation-chain-${{ github.sha }}
           path: attestation-chain.json
           retention-days: 90
 
-  # Deploy gate: verify chain and evaluate policy
+  # Deploy gate: verify chain and evaluate policy. This job also requests
+  # id-token: write and attestations: write, and reads the *_PUBLIC_KEY
+  # secrets, so it is gated the same way as security-checks above.
   deploy-gate:
     needs: security-checks
     runs-on: ubuntu-latest
     environment: production
-    if: "github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'"
+    if: >-
+      (github.event_name == 'push' ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) &&
+      github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     permissions:
       contents: read
       id-token: write
       attestations: write
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26'
 
       - name: Cache Go modules and build cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cache/go-build
@@ -296,7 +318,7 @@ jobs:
           go build -o ./release/gate   ./cmd/gate
 
       - name: Download attestation chain
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: attestation-chain-${{ github.sha }}
 
@@ -306,8 +328,8 @@ jobs:
           ./bin/gate evaluate \
             --chain attestation-chain.json \
             --authorized-signers "sast=${{ secrets.SAST_PUBLIC_KEY }},sca=${{ secrets.SCA_PUBLIC_KEY }},config=${{ secrets.CONFIG_PUBLIC_KEY }},secret=${{ secrets.SECRET_SCANNING_PUBLIC_KEY }}" \
-            --policy .github/policies/deploy.rego \
-            --policy-hash 39dd449347994f378d29acbd64332e83568ca4e444029ee69dcba88d177b18cc \
+            --policy policies/deploy.rego \
+            --policy-hash d90ce4eb57a3ce0b208037dba73c10959f5e2d16b2f418311da2fe117074aa0a \
             --max-age 24h \
             --require-log-entries \
             --output gate-decision.json
@@ -330,7 +352,7 @@ jobs:
           echo "$ARTIFACT_REF" > release/COMMIT
 
       - name: Attest release provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: |
             release/keygen
@@ -339,7 +361,7 @@ jobs:
             release/gate
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-${{ github.sha }}
           path: release/

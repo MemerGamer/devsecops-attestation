@@ -14,6 +14,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,6 +29,10 @@ import (
 // osExit is a variable so tests can intercept os.Exit calls.
 var osExit = os.Exit
 
+// version identifies the build of the gate binary. It is overridden at
+// build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
 		osExit(1)
@@ -34,8 +40,9 @@ func main() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "gate",
-	Short: "Evaluate an attestation chain against a deployment gate policy",
+	Use:     "gate",
+	Short:   "Evaluate an attestation chain against a deployment gate policy",
+	Version: version,
 }
 
 type evaluateFlags struct {
@@ -43,10 +50,27 @@ type evaluateFlags struct {
 	verifySigner        string
 	policyFile          string
 	policyHash          string
+	configHash          string
 	authorizedSigners   string
 	output              string
 	maxAge              string
 	requireLogEntries   bool
+	requiredChecks      string
+	failOnSeverity      string
+	zeroToleranceChecks string
+	dataFile            string
+	targetRef           string
+	subject             string
+}
+
+// validSeverities are the severity levels accepted by --fail-on-severity,
+// mirroring the ordering used by the bundled policy's severity_rank table.
+var validSeverities = map[string]bool{
+	"info":     true,
+	"low":      true,
+	"medium":   true,
+	"high":     true,
+	"critical": true,
 }
 
 var evalFlags evaluateFlags
@@ -63,15 +87,192 @@ func init() {
 	evaluateCmd.Flags().StringVar(&evalFlags.chain, "chain", "", "path to chain JSON file (required)")
 	evaluateCmd.Flags().StringVar(&evalFlags.verifySigner, "verify-signer", "", "hex public key that all attestations must be signed with (required)")
 	evaluateCmd.Flags().StringVar(&evalFlags.policyFile, "policy", "", "path to Rego policy file (uses built-in policy if empty)")
-	evaluateCmd.Flags().StringVar(&evalFlags.policyHash, "policy-hash", "", "expected SHA-256 hex of the policy file; requires --policy")
+	evaluateCmd.Flags().StringVar(&evalFlags.policyHash, "policy-hash", "", "expected SHA-256 hex of the policy that will be evaluated; checked against the file given by --policy, or against the bundled default policy when --policy is empty")
+	evaluateCmd.Flags().StringVar(&evalFlags.configHash, "config-hash", "", "expected SHA-256 hex of the effective policy configuration (see \"gate config-hash\"); required when --policy-hash is set and the effective config is not the bundled policy's defaults")
 	evaluateCmd.Flags().StringVar(&evalFlags.authorizedSigners, "authorized-signers", "", "check-type=hex pairs e.g. sast=<hex>,sca=<hex>")
 	evaluateCmd.Flags().StringVar(&evalFlags.output, "output", "", "write GateDecision JSON to this path")
 	evaluateCmd.Flags().StringVar(&evalFlags.maxAge, "max-age", "", "maximum allowed attestation age, e.g. 24h (no limit if empty)")
 	evaluateCmd.Flags().BoolVar(&evalFlags.requireLogEntries, "require-log-entries", false, "fail if any attestation lacks a transparency log entry")
+	evaluateCmd.Flags().StringVar(&evalFlags.requiredChecks, "required-checks", "", "comma-separated required check types, e.g. sast,sca,config,secret (overrides data.config.required_checks)")
+	evaluateCmd.Flags().StringVar(&evalFlags.failOnSeverity, "fail-on-severity", "", "minimum finding severity that blocks deployment: info, low, medium, high, or critical (overrides data.config.fail_on_severity)")
+	evaluateCmd.Flags().StringVar(&evalFlags.zeroToleranceChecks, "zero-tolerance-checks", "", "comma-separated check types with zero finding tolerance, e.g. secret (overrides data.config.zero_tolerance_checks)")
+	evaluateCmd.Flags().StringVar(&evalFlags.dataFile, "data", "", "path to a JSON file whose object becomes data.config for policy evaluation; --required-checks, --fail-on-severity, and --zero-tolerance-checks override its keys")
+	evaluateCmd.Flags().StringVar(&evalFlags.targetRef, "target-ref", "", "commit or artifact digest that every attestation's result.target_ref must equal (commit binding); empty disables the check")
+	evaluateCmd.Flags().StringVar(&evalFlags.subject, "subject", "", "subject name that every attestation's subject.name must equal; empty disables the check")
 
 	evaluateCmd.MarkFlagRequired("chain")
 
 	rootCmd.AddCommand(evaluateCmd)
+	rootCmd.AddCommand(policyHashCmd)
+	rootCmd.AddCommand(configHashCmd)
+}
+
+type policyHashFlags struct {
+	policyFile string
+}
+
+var policyHashFlagsVar policyHashFlags
+
+var policyHashCmd = &cobra.Command{
+	Use:   "policy-hash",
+	Short: "Print the SHA-256 hex hash of a Rego policy file (or the bundled default policy)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runPolicyHash(policyHashFlagsVar)
+	},
+}
+
+func init() {
+	policyHashCmd.Flags().StringVar(&policyHashFlagsVar.policyFile, "policy", "", "path to Rego policy file (hashes the built-in policy if empty)")
+}
+
+// runPolicyHash prints the hex-encoded SHA-256 of the given policy file, or
+// of the bundled default policy when no file is given. It uses the same
+// hashing that --policy-hash checks in "gate evaluate" against.
+func runPolicyHash(f policyHashFlags) error {
+	var data []byte
+	if f.policyFile == "" {
+		data = []byte(policy.DefaultPolicy)
+	} else {
+		b, err := os.ReadFile(f.policyFile)
+		if err != nil {
+			return fmt.Errorf("reading policy file: %w", err)
+		}
+		data = b
+	}
+	sum := sha256.Sum256(data)
+	fmt.Println(hex.EncodeToString(sum[:]))
+	return nil
+}
+
+type configHashFlags struct {
+	dataFile            string
+	requiredChecks      string
+	failOnSeverity      string
+	zeroToleranceChecks string
+}
+
+var configHashFlagsVar configHashFlags
+
+var configHashCmd = &cobra.Command{
+	Use:   "config-hash",
+	Short: "Print the SHA-256 hex hash of the effective policy configuration",
+	Long: "Print the SHA-256 hex hash of the effective data.config that " +
+		"\"gate evaluate\" would use for the given --data / --required-checks " +
+		"/ --fail-on-severity / --zero-tolerance-checks combination, with " +
+		"defaults filled in explicitly. Pass the result to " +
+		"\"gate evaluate --config-hash\" to pin the configuration alongside " +
+		"--policy-hash.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runConfigHash(configHashFlagsVar)
+	},
+}
+
+func init() {
+	configHashCmd.Flags().StringVar(&configHashFlagsVar.dataFile, "data", "", "path to a JSON file whose object becomes data.config for policy evaluation")
+	configHashCmd.Flags().StringVar(&configHashFlagsVar.requiredChecks, "required-checks", "", "comma-separated required check types, e.g. sast,sca,config,secret (overrides data.config.required_checks)")
+	configHashCmd.Flags().StringVar(&configHashFlagsVar.failOnSeverity, "fail-on-severity", "", "minimum finding severity that blocks deployment: info, low, medium, high, or critical (overrides data.config.fail_on_severity)")
+	configHashCmd.Flags().StringVar(&configHashFlagsVar.zeroToleranceChecks, "zero-tolerance-checks", "", "comma-separated check types with zero finding tolerance, e.g. secret (overrides data.config.zero_tolerance_checks)")
+}
+
+// runConfigHash prints the hex-encoded SHA-256 of the effective policy
+// configuration built from the same --data / override flags "gate evaluate"
+// accepts. It uses the same resolution logic runEvaluate uses to compute
+// the config hash that --config-hash checks against.
+func runConfigHash(f configHashFlags) error {
+	overrides, err := loadPolicyConfig(evaluateFlags{
+		dataFile:            f.dataFile,
+		requiredChecks:      f.requiredChecks,
+		failOnSeverity:      f.failOnSeverity,
+		zeroToleranceChecks: f.zeroToleranceChecks,
+	})
+	if err != nil {
+		return fmt.Errorf("loading policy configuration: %w", err)
+	}
+
+	effective := buildEffectiveConfig(overrides)
+	hash, err := hashEffectiveConfig(effective)
+	if err != nil {
+		return err
+	}
+	fmt.Println(hash)
+	return nil
+}
+
+// defaultRequiredChecks, defaultFailOnSeverity, and defaultZeroToleranceChecks
+// mirror the bundled policy's own defaults (policies/deploy.rego). They are
+// used to fill in the effective configuration explicitly whenever a
+// parameter is not overridden, so --config-hash covers the full set of
+// parameters the policy reads, not only the ones a caller happened to pass.
+var (
+	defaultRequiredChecks      = []string{"config", "sast", "sca", "secret"}
+	defaultFailOnSeverity      = "high"
+	defaultZeroToleranceChecks = []string{"secret"}
+)
+
+// buildEffectiveConfig resolves the full data.config object that the policy
+// will actually see: every parameter is present, using the override from
+// overrides when given and the bundled policy's default otherwise. Lists
+// are sorted so the resulting hash is stable regardless of the order the
+// caller supplied entries in (the policy treats them as sets).
+func buildEffectiveConfig(overrides map[string]any) map[string]any {
+	required := append([]string(nil), defaultRequiredChecks...)
+	if v, ok := overrides["required_checks"]; ok {
+		required = toStringSlice(v)
+	}
+	failOn := defaultFailOnSeverity
+	if v, ok := overrides["fail_on_severity"]; ok {
+		if s, ok := v.(string); ok {
+			failOn = s
+		}
+	}
+	zeroTolerance := append([]string(nil), defaultZeroToleranceChecks...)
+	if v, ok := overrides["zero_tolerance_checks"]; ok {
+		zeroTolerance = toStringSlice(v)
+	}
+
+	sort.Strings(required)
+	sort.Strings(zeroTolerance)
+
+	return map[string]any{
+		"required_checks":       required,
+		"fail_on_severity":      failOn,
+		"zero_tolerance_checks": zeroTolerance,
+	}
+}
+
+// toStringSlice normalizes a []string or []interface{} (as produced by
+// json.Unmarshal into map[string]any) into a []string. Any non-string
+// element is skipped; callers only reach here with already-validated data.
+func toStringSlice(v any) []string {
+	switch vv := v.(type) {
+	case []string:
+		out := make([]string, len(vv))
+		copy(out, vv)
+		return out
+	case []interface{}:
+		out := make([]string, 0, len(vv))
+		for _, elem := range vv {
+			if s, ok := elem.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// hashEffectiveConfig returns the hex-encoded SHA-256 of cfg's canonical
+// JSON encoding. Go's encoding/json sorts map string keys alphabetically,
+// and buildEffectiveConfig sorts every list value, so the result is stable
+// regardless of the order overrides were supplied in.
+func hashEffectiveConfig(cfg map[string]any) (string, error) {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("marshalling effective config: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func runEvaluate(ctx context.Context, f evaluateFlags) error {
@@ -86,6 +287,13 @@ func runEvaluate(ctx context.Context, f evaluateFlags) error {
 	authorizedSigners, err := parseAuthorizedSigners(f.authorizedSigners)
 	if err != nil {
 		return fmt.Errorf("parsing --authorized-signers: %w", err)
+	}
+
+	// Parse the policy data.config overrides early so format errors surface
+	// before chain I/O, matching the other flag validations above.
+	policyConfig, err := loadPolicyConfig(f)
+	if err != nil {
+		return fmt.Errorf("loading policy configuration: %w", err)
 	}
 
 	chain, err := attestation.LoadChain(f.chain)
@@ -129,6 +337,39 @@ func runEvaluate(ctx context.Context, f evaluateFlags) error {
 		}
 	}
 
+	// Commit binding: when --target-ref is given, every attestation's
+	// result.target_ref must equal it exactly. VerifyChainWithOptions above
+	// already rejects a chain whose attestations disagree with each other on
+	// target_ref, but that alone does not stop an attacker from replaying an
+	// internally-consistent chain that was produced against a different
+	// commit than the one about to be deployed. Binding to the caller's
+	// expected ref closes that gap. Enforced in Go, after signer
+	// authorization and before policy evaluation, so an unbound or
+	// mis-bound chain never reaches OPA.
+	if f.targetRef != "" {
+		for i, a := range chain {
+			if a.Result.TargetRef != f.targetRef {
+				fmt.Fprintf(os.Stderr, "target ref mismatch for attestation %d (%s, check_type=%s): got %q, want %q\n",
+					i, a.ID, a.Result.CheckType, a.Result.TargetRef, f.targetRef)
+				osExit(1)
+				return nil
+			}
+		}
+	}
+
+	// Subject binding: when --subject is given, every attestation's
+	// subject.name must equal it exactly.
+	if f.subject != "" {
+		for i, a := range chain {
+			if a.Subject.Name != f.subject {
+				fmt.Fprintf(os.Stderr, "subject mismatch for attestation %d (%s, check_type=%s): got %q, want %q\n",
+					i, a.ID, a.Result.CheckType, a.Subject.Name, f.subject)
+				osExit(1)
+				return nil
+			}
+		}
+	}
+
 	// Transparency log enforcement: every attestation must carry a log entry
 	// reference when --require-log-entries is set.
 	if f.requireLogEntries {
@@ -142,20 +383,54 @@ func runEvaluate(ctx context.Context, f evaluateFlags) error {
 		}
 	}
 
-	// Policy file integrity: verify SHA-256 hash before loading the policy.
-	if f.policyHash != "" {
-		if f.policyFile == "" {
-			return fmt.Errorf("--policy-hash requires --policy: built-in policy has no file to hash")
-		}
+	// Policy source of truth: read the policy exactly once, whether from a
+	// file or the bundled default. The hash check below and the evaluator
+	// both use this same in-memory copy, so there is no window between
+	// hashing and evaluating in which the on-disk file could be swapped
+	// (TOCTOU). When --policy is empty, the bundled default policy is used,
+	// so --policy-hash can pin the built-in policy too.
+	var policySource string
+	if f.policyFile == "" {
+		policySource = policy.DefaultPolicy
+	} else {
 		data, err := os.ReadFile(f.policyFile)
 		if err != nil {
-			return fmt.Errorf("reading policy file for hash verification: %w", err)
+			return fmt.Errorf("reading policy file: %w", err)
 		}
-		sum := sha256.Sum256(data)
+		policySource = string(data)
+	}
+
+	// Policy file integrity: verify SHA-256 hash of the bytes that will
+	// actually be evaluated.
+	if f.policyHash != "" {
+		sum := sha256.Sum256([]byte(policySource))
 		actual := hex.EncodeToString(sum[:])
 		if actual != strings.ToLower(f.policyHash) {
 			return fmt.Errorf("policy file hash mismatch: expected %s, got %s", strings.ToLower(f.policyHash), actual)
 		}
+	}
+
+	// Policy configuration integrity: compute the fully-resolved effective
+	// config (defaults filled in explicitly) and its hash. This closes the
+	// gap where --policy-hash pinned the policy's logic but left its
+	// parameters (fail_on_severity, required_checks, zero_tolerance_checks)
+	// unpinned. If the policy is pinned and the effective config is not the
+	// bundled policy's defaults, --config-hash must also be given: pinning
+	// the policy logic while leaving a non-default configuration unpinned is
+	// a misconfiguration, not a safe default.
+	effectiveConfig := buildEffectiveConfig(policyConfig)
+	computedConfigHash, err := hashEffectiveConfig(effectiveConfig)
+	if err != nil {
+		return fmt.Errorf("computing effective config hash: %w", err)
+	}
+	configIsDefault := reflect.DeepEqual(effectiveConfig, buildEffectiveConfig(nil))
+
+	if f.policyHash != "" && !configIsDefault && f.configHash == "" {
+		return fmt.Errorf("policy hash is pinned and the effective policy configuration is not the bundled defaults, but --config-hash was not given: pinning policy logic without pinning a non-default configuration is a misconfiguration")
+	}
+
+	if f.configHash != "" && strings.ToLower(f.configHash) != computedConfigHash {
+		return fmt.Errorf("config hash mismatch: expected %s, got %s", strings.ToLower(f.configHash), computedConfigHash)
 	}
 
 	subject := types.AttestationSubject{}
@@ -169,10 +444,12 @@ func runEvaluate(ctx context.Context, f evaluateFlags) error {
 		AuthorizedSigners: authorizedSigners,
 	}
 
-	decision, err := policy.EvaluateFromFile(ctx, f.policyFile, input)
+	decision, err := policy.NewEvaluator(policySource, policy.WithData(policyConfig)).Evaluate(ctx, input)
 	if err != nil {
 		return fmt.Errorf("evaluating policy: %w", err)
 	}
+	decision.EffectiveConfig = effectiveConfig
+	decision.ConfigHash = computedConfigHash
 
 	if f.output != "" {
 		data, err := json.MarshalIndent(decision, "", "  ")
@@ -198,6 +475,148 @@ func runEvaluate(ctx context.Context, f evaluateFlags) error {
 		return nil
 	}
 
+	return nil
+}
+
+// loadPolicyConfig builds the data.config object passed to the OPA policy.
+// It starts from --data (a JSON file, if given), then --required-checks,
+// --fail-on-severity, and --zero-tolerance-checks override the corresponding
+// keys when set. The result is nil when no configuration was supplied,
+// leaving data.config undefined so the policy's own defaults apply.
+func loadPolicyConfig(f evaluateFlags) (map[string]any, error) {
+	var config map[string]any
+
+	if f.dataFile != "" {
+		b, err := os.ReadFile(f.dataFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading --data file: %w", err)
+		}
+		if err := json.Unmarshal(b, &config); err != nil {
+			return nil, fmt.Errorf("parsing --data file as json: %w", err)
+		}
+		if err := validateDataConfig(config); err != nil {
+			return nil, fmt.Errorf("validating --data file: %w", err)
+		}
+	}
+
+	if f.requiredChecks != "" {
+		list, err := parseCommaList(f.requiredChecks)
+		if err != nil {
+			return nil, fmt.Errorf("parsing --required-checks: %w", err)
+		}
+		if config == nil {
+			config = map[string]any{}
+		}
+		config["required_checks"] = list
+	}
+
+	if f.failOnSeverity != "" {
+		sev := strings.ToLower(strings.TrimSpace(f.failOnSeverity))
+		if !validSeverities[sev] {
+			return nil, fmt.Errorf("invalid --fail-on-severity %q: must be one of info, low, medium, high, critical", sev)
+		}
+		if config == nil {
+			config = map[string]any{}
+		}
+		config["fail_on_severity"] = sev
+	}
+
+	if f.zeroToleranceChecks != "" {
+		list, err := parseCommaList(f.zeroToleranceChecks)
+		if err != nil {
+			return nil, fmt.Errorf("parsing --zero-tolerance-checks: %w", err)
+		}
+		if config == nil {
+			config = map[string]any{}
+		}
+		config["zero_tolerance_checks"] = list
+	}
+
+	return config, nil
+}
+
+// parseCommaList splits a comma-separated flag value into a slice of
+// lowercased, trimmed entries, each of which must be a syntactically valid
+// check type (see types.ValidateCheckType). This rejects empty entries
+// (including an entirely empty or whitespace-only flag value) the same way
+// an invalid check type is rejected.
+func parseCommaList(s string) ([]string, error) {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		v := strings.ToLower(strings.TrimSpace(p))
+		if err := types.ValidateCheckType(v); err != nil {
+			return nil, fmt.Errorf("invalid check type %q in list %q: %w", p, s, err)
+		}
+		result = append(result, v)
+	}
+	return result, nil
+}
+
+// allowedConfigKeys are the only keys the bundled policy reads from
+// data.config. A --data file containing any other key is rejected rather
+// than silently ignored, since a typo in a key name would otherwise leave
+// the intended override unapplied.
+var allowedConfigKeys = map[string]bool{
+	"required_checks":       true,
+	"fail_on_severity":      true,
+	"zero_tolerance_checks": true,
+}
+
+// validateDataConfig validates a --data file's decoded object the same way
+// the --required-checks, --fail-on-severity, and --zero-tolerance-checks
+// flags are validated: unknown keys are rejected, fail_on_severity must be
+// a known severity level, and required_checks / zero_tolerance_checks must
+// each be a non-empty array of strings that pass types.ValidateCheckType.
+// This closes the fail-open gap where a malformed --data value reached the
+// policy unchecked and made the corresponding Rego rule undefined instead
+// of denying.
+func validateDataConfig(config map[string]any) error {
+	for key := range config {
+		if !allowedConfigKeys[key] {
+			return fmt.Errorf("unknown policy configuration key %q", key)
+		}
+	}
+
+	if v, ok := config["fail_on_severity"]; ok {
+		sev, isString := v.(string)
+		if !isString || !validSeverities[sev] {
+			return fmt.Errorf("invalid fail_on_severity %v: must be one of info, low, medium, high, critical", v)
+		}
+	}
+
+	if v, ok := config["required_checks"]; ok {
+		if err := validateCheckTypeList("required_checks", v); err != nil {
+			return err
+		}
+	}
+
+	if v, ok := config["zero_tolerance_checks"]; ok {
+		if err := validateCheckTypeList("zero_tolerance_checks", v); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateCheckTypeList validates that v (the decoded JSON value of a
+// required_checks or zero_tolerance_checks key) is a non-empty array of
+// strings, each a syntactically valid check type.
+func validateCheckTypeList(field string, v any) error {
+	list, ok := v.([]interface{})
+	if !ok || len(list) == 0 {
+		return fmt.Errorf("invalid %s: must be a non-empty array of strings", field)
+	}
+	for _, elem := range list {
+		s, ok := elem.(string)
+		if !ok {
+			return fmt.Errorf("invalid %s: must be a non-empty array of strings", field)
+		}
+		if err := types.ValidateCheckType(s); err != nil {
+			return fmt.Errorf("invalid %s entry: %w", field, err)
+		}
+	}
 	return nil
 }
 

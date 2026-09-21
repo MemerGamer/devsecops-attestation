@@ -1,0 +1,4 @@
+{
+  "check_type": "terraform",
+  "results": {
+    "failed_checks": [ { "check_id": "CKV_AWS_3",

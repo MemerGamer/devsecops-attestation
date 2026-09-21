@@ -17,6 +17,10 @@ import (
 // osExit is a variable so tests can intercept os.Exit calls.
 var osExit = os.Exit
 
+// version identifies the build of the verify binary. It is overridden at
+// build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
 		osExit(1)
@@ -31,9 +35,9 @@ type verifyFlags struct {
 
 // verifyReport is the JSON structure written to --output.
 type verifyReport struct {
-	ChainValid       bool              `json:"chain_valid"`
-	AttestationCount int               `json:"attestation_count"`
-	Results          []verifyResult    `json:"results"`
+	ChainValid       bool           `json:"chain_valid"`
+	AttestationCount int            `json:"attestation_count"`
+	Results          []verifyResult `json:"results"`
 }
 
 type verifyResult struct {
@@ -47,8 +51,9 @@ type verifyResult struct {
 var flags verifyFlags
 
 var rootCmd = &cobra.Command{
-	Use:   "verify",
-	Short: "Verify the signature and chain integrity of an attestation chain",
+	Use:     "verify",
+	Short:   "Verify the signature and chain integrity of an attestation chain",
+	Version: version,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runVerify(flags)
 	},

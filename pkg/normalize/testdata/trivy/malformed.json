@@ -1,0 +1,4 @@
+{
+  "SchemaVersion": 2,
+  "Results": [
+    { "Target": "Cargo.lock", "Vulnerabilities": [ { "Severity": }

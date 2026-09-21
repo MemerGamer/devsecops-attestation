@@ -1,0 +1,13 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "clean-repo",
+  "ArtifactType": "repository",
+  "Results": [
+    {
+      "Target": "Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo",
+      "Vulnerabilities": null
+    }
+  ]
+}

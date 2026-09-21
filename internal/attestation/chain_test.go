@@ -90,7 +90,7 @@ func TestChainAdd(t *testing.T) {
 	t.Run("third attestation references second", func(t *testing.T) {
 		kp := makeKeyPair(t)
 		c := NewChain()
-		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)   //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp) //nolint
 		a2, err := c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)
 		if err != nil {
 			t.Fatalf("Add() second error = %v", err)
@@ -414,8 +414,8 @@ func TestVerifyChain(t *testing.T) {
 	t.Run("mixed subjects fail subject consistency check", func(t *testing.T) {
 		kp := makeKeyPair(t)
 		c := NewChain()
-		c.Add(makeSubject("app-a"), makeResult(types.CheckSAST, true), kp)  //nolint
-		c.Add(makeSubject("app-b"), makeResult(types.CheckSCA, true), kp)   //nolint
+		c.Add(makeSubject("app-a"), makeResult(types.CheckSAST, true), kp) //nolint
+		c.Add(makeSubject("app-b"), makeResult(types.CheckSCA, true), kp)  //nolint
 
 		results, err := VerifyChain(c.Attestations())
 		if err == nil {
@@ -429,9 +429,9 @@ func TestVerifyChain(t *testing.T) {
 	t.Run("consistent subjects pass subject check", func(t *testing.T) {
 		kp := makeKeyPair(t)
 		c := NewChain()
-		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)    //nolint
-		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)     //nolint
-		c.Add(makeSubject("app"), makeResult(types.CheckConfig, true), kp)  //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)   //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)    //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckConfig, true), kp) //nolint
 
 		_, err := VerifyChain(c.Attestations())
 		if err != nil {
@@ -439,12 +439,78 @@ func TestVerifyChain(t *testing.T) {
 		}
 	})
 
+	t.Run("mixed target refs fail target-ref consistency check", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		resultA := makeResult(types.CheckSAST, true)
+		resultA.TargetRef = "commit-a"
+		resultB := makeResult(types.CheckSCA, true)
+		resultB.TargetRef = "commit-b"
+
+		c := NewChain()
+		c.Add(makeSubject("app"), resultA, kp) //nolint
+		c.Add(makeSubject("app"), resultB, kp) //nolint
+
+		results, err := VerifyChain(c.Attestations())
+		if err == nil {
+			t.Error("VerifyChain() expected error for mixed target refs, got nil")
+		}
+		if !strings.Contains(err.Error(), "target ref mismatch") {
+			t.Errorf("error = %v, want mention of target ref mismatch", err)
+		}
+		if results[1].ChainValid {
+			t.Error("results[1].ChainValid should be false for target ref mismatch")
+		}
+	})
+
+	t.Run("consistent target refs pass target-ref check", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)   //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)    //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckConfig, true), kp) //nolint
+
+		_, err := VerifyChain(c.Attestations())
+		if err != nil {
+			t.Errorf("VerifyChain() unexpected error for consistent target refs: %v", err)
+		}
+	})
+
+	t.Run("custom check type outside the four built-in constants verifies", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)                 //nolint
+		c.Add(makeSubject("app"), makeResult(types.SecurityCheckType("dast"), true), kp) //nolint
+
+		_, err := VerifyChain(c.Attestations())
+		if err != nil {
+			t.Errorf("VerifyChain() unexpected error for custom check type: %v", err)
+		}
+	})
+
+	t.Run("duplicate custom check type fails just like a built-in one", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.Add(makeSubject("app"), makeResult(types.SecurityCheckType("dast"), true), kp) //nolint
+		c.Add(makeSubject("app"), makeResult(types.SecurityCheckType("dast"), true), kp) //nolint
+
+		results, err := VerifyChain(c.Attestations())
+		if err == nil {
+			t.Error("VerifyChain() expected error for duplicate custom check type, got nil")
+		}
+		if results[1].ChainValid {
+			t.Error("results[1].ChainValid should be false for duplicate dast")
+		}
+		if !strings.Contains(err.Error(), "duplicate") {
+			t.Errorf("error %q should mention 'duplicate'", err.Error())
+		}
+	})
+
 	t.Run("duplicate check type fails", func(t *testing.T) {
 		kp := makeKeyPair(t)
 		c := NewChain()
-		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)  //nolint
-		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)   //nolint
-		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)  //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp) //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)  //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp) //nolint
 
 		results, err := VerifyChain(c.Attestations())
 		if err == nil {
@@ -511,9 +577,9 @@ func TestVerifyChainWithOptions(t *testing.T) {
 		t.Helper()
 		kp := makeKeyPair(t)
 		c := NewChain()
-		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)    //nolint
-		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)     //nolint
-		c.Add(makeSubject("app"), makeResult(types.CheckConfig, true), kp)  //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)   //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)    //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckConfig, true), kp) //nolint
 		return c.Attestations(), kp
 	}
 
