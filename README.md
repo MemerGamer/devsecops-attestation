@@ -92,7 +92,11 @@ Findings (optional) have the shape:
 { "id": "CWE-89", "severity": "critical", "title": "SQL injection", "location": "src/db.go:42" }
 ```
 
-Sign all four checks using their respective keys:
+Sign all four checks using their respective keys. Prefer `--signing-key-file`
+(or the `ATTEST_SIGNING_KEY` environment variable) over `--signing-key`:
+a value passed on argv stays visible in `/proc/<pid>/cmdline` for the life
+of the process, which matters on shared runners. `--signing-key` is kept
+only for backward compatibility.
 
 ```shell
 REF=$(git rev-parse HEAD)
@@ -102,7 +106,7 @@ go run ./cmd/sign \
   --check-type sast --tool semgrep \
   --result results/sast.json \
   --target-ref "$REF" --subject myapp \
-  --signing-key "$(cat keys/sast/private.hex)" \
+  --signing-key-file keys/sast/private.hex \
   --signer-id "local:$(whoami)" \
   --log-entry "$LOG_URL" \
   --chain chain.json
@@ -111,7 +115,7 @@ go run ./cmd/sign \
   --check-type sca --tool trivy \
   --result results/sca.json \
   --target-ref "$REF" --subject myapp \
-  --signing-key "$(cat keys/sca/private.hex)" \
+  --signing-key-file keys/sca/private.hex \
   --signer-id "local:$(whoami)" \
   --log-entry "$LOG_URL" \
   --chain chain.json
@@ -120,7 +124,7 @@ go run ./cmd/sign \
   --check-type config --tool checkov \
   --result results/config.json \
   --target-ref "$REF" --subject myapp \
-  --signing-key "$(cat keys/config/private.hex)" \
+  --signing-key-file keys/config/private.hex \
   --signer-id "local:$(whoami)" \
   --log-entry "$LOG_URL" \
   --chain chain.json
@@ -129,7 +133,7 @@ go run ./cmd/sign \
   --check-type secret --tool gitleaks \
   --result results/secret.json \
   --target-ref "$REF" --subject myapp \
-  --signing-key "$(cat keys/secret/private.hex)" \
+  --signing-key-file keys/secret/private.hex \
   --signer-id "local:$(whoami)" \
   --log-entry "$LOG_URL" \
   --chain chain.json
@@ -213,6 +217,21 @@ go run ./cmd/gate evaluate \
 
 ## GitHub Actions Setup
 
+`.github/workflows/devsecops-pipeline.yml` dogfoods this repository's own
+composite actions rather than hand-rolled steps: `sast`, `sca`, `config` and
+`secret` run in parallel jobs and upload raw scanner JSON as artifacts; the
+`deploy-gate` job downloads them, calls `./actions/setup` with
+`version: source` (so the CLI binaries are built from the same commit the
+job is running), normalizes and signs each raw result with
+`./actions/normalize-sign`, and evaluates the assembled chain with
+`./actions/gate`. An `actions-selftest` job runs
+`actions/test/run-local.sh` on every push and pull request so a change to
+the composite actions themselves is validated before the jobs that depend
+on them run. See [`actions/README.md`](actions/README.md) for the full
+input/output reference of each action, including how to consume them from
+another repository (`uses: MemerGamer/devsecops-attestation/actions/<name>@<ref>`)
+or from a Forgejo mirror.
+
 The pipeline uses per-check-type key pairs. Each check type has its own
 dedicated signing key so a compromise is contained to a single check.
 
@@ -265,6 +284,13 @@ The `deploy-gate` job targets the `production` environment, which can be
 configured to require manual approval before deployment. Set this up under
 **Settings > Environments > production > Required reviewers**.
 
+**Consuming this pipeline from another repository:** you do not need to
+clone or build this repository to use its attestation pipeline. Reference
+the composite actions directly (`actions/setup`, `actions/normalize-sign`,
+`actions/gate`) from your own workflow; see
+[`actions/README.md`](actions/README.md#consumer-workflow-example) for a
+complete example workflow and the full input reference.
+
 ---
 
 ## Running Tests
@@ -296,6 +322,8 @@ including tamper-detection attack simulations.
 
 - [Architecture](docs/architecture.md) - system design, data flow, and cryptographic guarantees
 - [Architecture diagram](docs/devsecops_attestation_architecture.svg) - visual overview
+- [Integration Guide](docs/integration-guide.md) - consuming the pipeline from another repository
+- [Severity Mapping](docs/severity-mapping.md) - how tool-native severities map to the canonical scale
 - [Project Structure](docs/structure.md) - package layout, responsibilities, and key design decisions
 - [Implementation Plan](docs/implementation-plan.md) - development phases and current status
 - [PhD Extension Path](docs/phd-extension.md) - planned research extensions beyond the MSc scope
