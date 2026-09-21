@@ -168,20 +168,69 @@ func TestRunSign(t *testing.T) {
 		}
 	})
 
-	t.Run("fails on unknown check type", func(t *testing.T) {
+	t.Run("succeeds with custom check type not in the four built-in constants", func(t *testing.T) {
 		dir := t.TempDir()
+		chainPath := filepath.Join(dir, "chain.json")
 		privHex, _ := generateTestKey(t)
+
 		err := runSign(ctx, signFlags{
-			checkType:  "unknown-type",
-			tool:       "semgrep",
+			checkType:  "dast",
+			tool:       "zap",
 			resultFile: resultFile,
 			targetRef:  "abc123",
 			subject:    "myapp",
 			signingKey: privHex,
-			chain:      filepath.Join(dir, "chain.json"),
+			chain:      chainPath,
 		})
-		if err == nil {
-			t.Error("runSign() expected error for unknown check type, got nil")
+		if err != nil {
+			t.Fatalf("runSign() with checkType=dast error = %v", err)
+		}
+
+		chain, err := attestation.LoadChain(chainPath)
+		if err != nil {
+			t.Fatalf("LoadChain() error = %v", err)
+		}
+		if chain[0].Result.CheckType != "dast" {
+			t.Errorf("CheckType = %q, want dast", chain[0].Result.CheckType)
+		}
+	})
+
+	t.Run("succeeds with another custom check type", func(t *testing.T) {
+		dir := t.TempDir()
+		chainPath := filepath.Join(dir, "chain.json")
+		privHex, _ := generateTestKey(t)
+
+		err := runSign(ctx, signFlags{
+			checkType:  "license",
+			tool:       "fossa",
+			resultFile: resultFile,
+			targetRef:  "abc123",
+			subject:    "myapp",
+			signingKey: privHex,
+			chain:      chainPath,
+		})
+		if err != nil {
+			t.Fatalf("runSign() with checkType=license error = %v", err)
+		}
+	})
+
+	t.Run("fails on invalid check type syntax", func(t *testing.T) {
+		invalid := []string{"", "SAST", "1abc", "a b", "abcdefghijklmnopqrstuvwxyzabcdefg"}
+		for _, ct := range invalid {
+			dir := t.TempDir()
+			privHex, _ := generateTestKey(t)
+			err := runSign(ctx, signFlags{
+				checkType:  ct,
+				tool:       "semgrep",
+				resultFile: resultFile,
+				targetRef:  "abc123",
+				subject:    "myapp",
+				signingKey: privHex,
+				chain:      filepath.Join(dir, "chain.json"),
+			})
+			if err == nil {
+				t.Errorf("runSign() with checkType=%q expected error, got nil", ct)
+			}
 		}
 	})
 
