@@ -12,6 +12,8 @@
 #   - Zero-tolerance check types: secret (any finding of any severity on
 #     these check types blocks deployment, regardless of fail_on_severity)
 #   - No attestation with result.passed == false
+#   - No attestation whose check_type is outside required_checks (the chain
+#     is sealed against undeclared check types, see undeclared_check_types)
 #   - signer_public_key_hex must match input.authorized_signers[check_type]
 #     when an entry is configured for that check type
 #
@@ -141,6 +143,15 @@ zero_tolerance_checks := {c | some c in data.config.zero_tolerance_checks} if {
 
 ran_checks := {r.result.check_type | some r in input.attestations}
 
+# undeclared_check_types is the set of check types that appear in the
+# attestation chain but are not in required_checks. The chain is sealed
+# against this set: an attacker who truncates a signed, verified chain
+# cannot substitute an undeclared check type for a required one, because
+# every check type present must be declared. Operators who add a custom
+# check type must add it to required_checks as well, or attestations of
+# that type are rejected.
+undeclared_check_types := ran_checks - required_checks
+
 # blocking_threshold always resolves to a defined severity rank, even when
 # fail_on_severity is invalid, so the severity comparison below is never
 # undefined (and therefore never silently skipped). It falls back to the
@@ -197,6 +208,9 @@ allow if {
 	missing := required_checks - ran_checks
 	count(missing) == 0
 
+	# No attestation carries a check type outside the declared set
+	count(undeclared_check_types) == 0
+
 	# No findings at or above the blocking severity threshold
 	count(blocking_findings) == 0
 
@@ -228,6 +242,11 @@ deny_reasons contains msg if {
 deny_reasons contains msg if {
 	not zero_tolerance_checks_ok
 	msg := sprintf("invalid data.config.zero_tolerance_checks %v: must be a non-empty array of strings", [data.config.zero_tolerance_checks])
+}
+
+deny_reasons contains msg if {
+	count(undeclared_check_types) > 0
+	msg := sprintf("undeclared check types: %v", [undeclared_check_types])
 }
 
 deny_reasons contains msg if {

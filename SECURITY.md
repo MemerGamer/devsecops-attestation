@@ -122,7 +122,8 @@ being caught by the other.
 | Injected or modified `SignerID` | `SignerID` is in the canonical payload; changing it after signing invalidates the Ed25519 signature |
 | Replay of a stale chain from a previous run | `--max-age 24h` on the gate; timestamps are monotonic and verified |
 | Future-dated attestation | `VerifyChainWithOptions` rejects timestamps beyond `now + 60s` clock skew |
-| Insertion, deletion, or reordering of attestations | SHA-256 chain linkage; any modification breaks the digest at that position |
+| Insertion, deletion, or reordering of attestations in the interior of the chain | SHA-256 chain linkage; any modification breaks the digest at that position |
+| Truncation of one or more attestations from the tail of an otherwise verified chain (chain linkage alone does not protect a suffix: dropping the last entries leaves the remaining links internally consistent) | The bundled policy seals the chain against the declared `required_checks` set: any attestation whose `check_type` is not in `required_checks` is denied outright as an "undeclared check type" the moment it appears, and dropping a declared check type from the tail is caught as "missing required checks". Residual risk: a check type an operator never adds to `required_checks` carries no seal at all - a chain that never ran it is indistinguishable from one that had it truncated, so every check type the policy is meant to enforce must be declared in `required_checks` |
 | Substituted Rego policy at evaluation time | `--policy-hash` pins the expected SHA-256; a modified policy file is rejected |
 | Missing transparency log reference | `--require-log-entries` causes the gate to reject any attestation without a `log_entry` |
 | Duplicate check types (e.g. two SAST steps) | `VerifyChainWithOptions` rejects chains with duplicate check types |

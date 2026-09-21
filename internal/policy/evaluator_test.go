@@ -896,3 +896,89 @@ func TestAuthorizedSigners(t *testing.T) {
 		}
 	})
 }
+
+// TestChainSealedAgainstUndeclaredCheckTruncation covers the tail-truncation
+// attack: an attacker who can drop a trailing attestation from an otherwise
+// verified chain must not be able to hide a failing check by truncating it
+// off, when that check type would otherwise be caught by required_checks.
+//
+// A check type that is not declared in required_checks at all is rejected
+// outright ("undeclared check types") the moment it appears in the chain,
+// regardless of whether it passed - so truncating it away is a no-op from
+// the policy's perspective (the untruncated chain was already denied for a
+// stronger reason than the truncated one would have been allowed for). Once
+// an operator declares a custom check type in required_checks, truncating
+// it away is caught by "missing required checks" instead.
+func TestChainSealedAgainstUndeclaredCheckTruncation(t *testing.T) {
+	ctx := context.Background()
+	license := types.SecurityCheckType("license")
+
+	cleanFour := []types.Attestation{
+		buildAttestation(types.CheckSAST, true, nil),
+		buildAttestation(types.CheckSCA, true, nil),
+		buildAttestation(types.CheckConfig, true, nil),
+		buildAttestation(types.CheckSecret, true, nil),
+	}
+	failingLicense := buildAttestation(license, false, []types.Finding{
+		{ID: "L1", Severity: types.SeverityHigh, Title: "GPL dependency"},
+	})
+
+	t.Run("license undeclared: full chain denies as undeclared check type", func(t *testing.T) {
+		e := policy.NewEvaluator("")
+		atts := append(append([]types.Attestation{}, cleanFour...), failingLicense)
+		decision, err := e.Evaluate(ctx, buildInput(atts))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("Allow=true, want false: license is not a declared required check")
+		}
+		if !containsReason(decision.Reasons, "undeclared check types") {
+			t.Errorf("reasons %v do not mention undeclared check types", decision.Reasons)
+		}
+	})
+
+	t.Run("license undeclared: truncated chain allows (license was never part of the contract)", func(t *testing.T) {
+		e := policy.NewEvaluator("")
+		decision, err := e.Evaluate(ctx, buildInput(cleanFour))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if !decision.Allow {
+			t.Errorf("Allow=false, want true: default required_checks does not include license; reasons=%v", decision.Reasons)
+		}
+	})
+
+	t.Run("license declared: full chain denies for the failing license check", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"required_checks": []string{"sast", "sca", "config", "secret", "license"},
+		}))
+		atts := append(append([]types.Attestation{}, cleanFour...), failingLicense)
+		decision, err := e.Evaluate(ctx, buildInput(atts))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("Allow=true, want false: license check failed and is required")
+		}
+		if containsReason(decision.Reasons, "undeclared check types") {
+			t.Errorf("license is declared, should not be reported as undeclared; reasons=%v", decision.Reasons)
+		}
+	})
+
+	t.Run("license declared: truncated chain denies as a missing required check", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"required_checks": []string{"sast", "sca", "config", "secret", "license"},
+		}))
+		decision, err := e.Evaluate(ctx, buildInput(cleanFour))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("Allow=true, want false: license is required but was truncated from the chain")
+		}
+		if !containsReason(decision.Reasons, "missing required checks") {
+			t.Errorf("reasons %v do not mention missing required checks", decision.Reasons)
+		}
+	})
+}

@@ -224,10 +224,15 @@ func TestGeneralizedPipelineGitleaksFindingsDenies(t *testing.T) {
 // TestGeneralizedPipelineCustomRequiredChecks covers scenario (c): a custom
 // data.config.required_checks list naming a non-standard "dast" check type,
 // normalized through the generic passthrough adapter. Present, the chain is
-// allowed; absent, the chain is denied for missing required checks.
+// allowed; absent, the chain is denied for missing required checks. Since
+// the policy now seals the chain against undeclared check types (any
+// attestation whose check_type is not in required_checks is rejected),
+// required_checks must name every check type the chain carries, not only
+// the one under test - operators adding a custom check type append it to
+// the existing list rather than replacing it.
 func TestGeneralizedPipelineCustomRequiredChecks(t *testing.T) {
 	config := map[string]any{
-		"required_checks": []string{"sast", "secret", "dast"},
+		"required_checks": []string{"sast", "sca", "config", "secret", "dast"},
 	}
 
 	t.Run("dast present is allowed", func(t *testing.T) {
