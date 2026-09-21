@@ -1,0 +1,106 @@
+name: devsecops-attestation gate
+description: >-
+  Verifies an attestation chain and evaluates it against the deploy gate
+  policy (`verify` then `gate evaluate`), writing a GateDecision JSON report
+  and a job summary. Requires the verify and gate binaries to already be on
+  PATH (see the setup action).
+author: MemerGamer
+
+inputs:
+  chain:
+    description: Path to the attestation chain JSON file to verify and evaluate.
+    required: true
+  authorized-signers:
+    description: >-
+      check-type=hex pairs, e.g. "sast=<hex>,sca=<hex>,config=<hex>,secret=<hex>".
+      Required unless verify-signer is set.
+    required: false
+    default: ""
+  verify-signer:
+    description: >-
+      Single hex public key that every attestation in the chain must be
+      signed with. Required unless authorized-signers is set.
+    required: false
+    default: ""
+  policy:
+    description: Path to a Rego policy file. Empty uses the bundled default policy.
+    required: false
+    default: ""
+  policy-hash:
+    description: Expected SHA-256 hex of the policy file (pins policy logic).
+    required: false
+    default: ""
+  config-hash:
+    description: >-
+      Expected SHA-256 hex of the effective policy configuration (required
+      alongside policy-hash when the effective config is non-default; see
+      `gate config-hash`).
+    required: false
+    default: ""
+  data:
+    description: Path to a JSON file whose object becomes data.config for policy evaluation.
+    required: false
+    default: ""
+  required-checks:
+    description: Comma-separated required check types, e.g. sast,sca,config,secret.
+    required: false
+    default: ""
+  fail-on-severity:
+    description: Minimum finding severity that blocks deployment (info, low, medium, high, critical).
+    required: false
+    default: ""
+  zero-tolerance-checks:
+    description: Comma-separated check types with zero finding tolerance, e.g. secret.
+    required: false
+    default: ""
+  max-age:
+    description: Maximum allowed attestation age, e.g. 24h. Empty means no limit.
+    required: false
+    default: 24h
+  require-log-entries:
+    description: Fail if any attestation lacks a transparency log entry.
+    required: false
+    default: "true"
+  output:
+    description: Path to write the GateDecision JSON report to.
+    required: false
+    default: gate-decision.json
+  expect:
+    description: >-
+      Expected outcome: "allow" fails the step on a deny, "deny" fails the
+      step on an allow (demo/negative-test mode), "any" never fails on the
+      decision itself. A gate evaluation error (chain/signer/hash failure,
+      as opposed to a policy decision) always fails the step regardless of
+      this input.
+    required: false
+    default: allow
+
+outputs:
+  decision:
+    description: '"allow", "deny", or "error" (evaluation could not complete).'
+    value: ${{ steps.run.outputs.decision }}
+  report:
+    description: Path to the GateDecision JSON report.
+    value: ${{ steps.run.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        INPUT_CHAIN: ${{ inputs.chain }}
+        INPUT_AUTHORIZED_SIGNERS: ${{ inputs.authorized-signers }}
+        INPUT_VERIFY_SIGNER: ${{ inputs.verify-signer }}
+        INPUT_POLICY: ${{ inputs.policy }}
+        INPUT_POLICY_HASH: ${{ inputs.policy-hash }}
+        INPUT_CONFIG_HASH: ${{ inputs.config-hash }}
+        INPUT_DATA: ${{ inputs.data }}
+        INPUT_REQUIRED_CHECKS: ${{ inputs.required-checks }}
+        INPUT_FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
+        INPUT_ZERO_TOLERANCE_CHECKS: ${{ inputs.zero-tolerance-checks }}
+        INPUT_MAX_AGE: ${{ inputs.max-age }}
+        INPUT_REQUIRE_LOG_ENTRIES: ${{ inputs.require-log-entries }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_EXPECT: ${{ inputs.expect }}
+      run: bash "${GITHUB_ACTION_PATH}/gate.sh"

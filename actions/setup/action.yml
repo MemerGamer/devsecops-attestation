@@ -1,0 +1,67 @@
+name: devsecops-attestation setup
+description: >-
+  Downloads (or builds from source) the devsecops-attestation CLI binaries
+  (keygen, attest, verify, gate) and the bundled deploy.rego policy, verifies
+  the release checksum, and adds the binaries to PATH. Runs on bash only, so
+  it works on both GitHub Actions and Forgejo Actions runners.
+author: MemerGamer
+
+inputs:
+  version:
+    description: >-
+      Release version to install, e.g. "1.2.3" or "v1.2.3". Pass "source" to
+      build the binaries from this action's own checkout with `go build`
+      (requires Go on PATH); useful for dogfooding and testing pull requests
+      against the actions themselves.
+    required: true
+  repository:
+    description: >-
+      owner/repo of the devsecops-attestation project, used to build the
+      cosign certificate-identity check and as documentation for
+      download-base-url overrides.
+    required: false
+    default: MemerGamer/devsecops-attestation
+  download-base-url:
+    description: >-
+      Base URL that release archives are downloaded from; the tag
+      (v<version>) and file name are appended. Defaults to this repository's
+      GitHub Releases. Override for Forgejo or a private mirror, e.g.
+      https://forgejo.example.com/kbalinthunor/devsecops-attestation/releases/download.
+    required: false
+    default: ${{ github.server_url }}/MemerGamer/devsecops-attestation/releases/download
+  install-dir:
+    description: Directory the binaries and policy are installed into and added to PATH.
+    required: false
+    default: ${{ runner.temp }}/devsecops-attestation/bin
+  verify-signature:
+    description: >-
+      When "true", verify checksums.txt against its cosign sign-blob
+      signature and certificate before trusting it; requires cosign on PATH
+      and fails the step if cosign is not found (never silently skips the
+      check).
+    required: false
+    default: "false"
+
+outputs:
+  bin-dir:
+    description: Directory containing the installed keygen/attest/verify/gate binaries.
+    value: ${{ steps.install.outputs.bin-dir }}
+  policy-path:
+    description: Path to the bundled deploy.rego policy installed alongside the binaries.
+    value: ${{ steps.install.outputs.policy-path }}
+  version:
+    description: Resolved version string ("source" when built from source).
+    value: ${{ steps.install.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_DOWNLOAD_BASE_URL: ${{ inputs.download-base-url }}
+        INPUT_INSTALL_DIR: ${{ inputs.install-dir }}
+        INPUT_VERIFY_SIGNATURE: ${{ inputs.verify-signature }}
+      run: bash "${GITHUB_ACTION_PATH}/setup.sh"
