@@ -95,7 +95,7 @@ behavior), `normalize`, and `tools`.
 | `--subject` | yes | Application or artifact name |
 | `--signing-key-file` | see note | Path to a file containing the 128-char hex Ed25519 private key (whitespace trimmed); preferred over `--signing-key` |
 | `--signing-key` | see note | 128-char hex Ed25519 private key, passed on argv; discouraged (visible in `/proc/<pid>/cmdline`), kept for backward compatibility |
-| `--fail-on` | no | Minimum severity (inclusive) that fails inline normalization, used with `--tool-format` (default `critical`) |
+| `--fail-on` | no | Minimum severity (inclusive) that fails inline normalization, used with `--tool-format` (default `high`) |
 | `--signer-id` | no | Human-readable signer identity (covered by signature); derived from CI env vars when omitted |
 | `--log-entry` | no | Transparency log URL or reference (stored after signing); derived from CI env vars when omitted |
 | `--no-env-defaults` | no | Disable deriving `--signer-id` / `--log-entry` from CI environment variables |
@@ -119,7 +119,7 @@ matters on shared runners.
 |------|----------|-------------|
 | `--tool` | yes | Normalize adapter name, e.g. `semgrep` |
 | `--in` | yes | Path to raw tool report, or `-` for stdin |
-| `--fail-on` | no | Minimum severity (inclusive) that fails the run (default `critical`) |
+| `--fail-on` | no | Minimum severity (inclusive) that fails the run (default `high`) |
 | `--out` | no | Write canonical JSON to this path instead of stdout |
 
 ## `cmd/gate evaluate` Flags
@@ -194,7 +194,7 @@ values are what `gate evaluate --policy-hash` / `--config-hash` pin.
   boundaries: `--config-hash` is required whenever `--policy-hash` is set and
   the effective configuration is not the bundled defaults.
 - `attest sign --fail-on` and `attest normalize --fail-on` default to
-  `critical`, matching the gate's default `--fail-on-severity`, so the
+  `high`, matching the gate's default `--fail-on-severity`, so the
   signer-side pass determination and the gate-side blocking decision agree
   unless an operator deliberately diverges them.
 - The composite actions under `actions/` are bash-only (`shell: bash`, no

@@ -110,7 +110,7 @@ else
 	if [ "${INPUT_VERIFY_SIGNATURE}" = "true" ]; then
 		if ! command -v cosign >/dev/null 2>&1; then
 			fail "verify-signature=true (the default) but cosign is not on PATH. Add sigstore/cosign-installer before this step, e.g.:
-  - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+  - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 Or set verify-signature: false explicitly to skip release signature verification (not recommended for production use)."
 		fi
 

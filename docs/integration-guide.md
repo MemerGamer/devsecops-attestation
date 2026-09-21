@@ -231,11 +231,16 @@ Three options, in order of effort:
 
 A check type is not limited to `sast`/`sca`/`config`/`secret`. Any
 identifier matching `^[a-z][a-z0-9-]{0,31}$` is accepted by `attest sign
---check-type`. To make a custom check type mandatory for deployment, add it
-to `data.config.required_checks` (via `gate evaluate --required-checks` or
-a `--data` JSON file); see [Policy Configuration](#policy-configuration)
-below. Each custom check type still needs its own key pair and its own
-entry in `--authorized-signers`.
+--check-type`, but the bundled policy seals the chain against undeclared
+check types: any attestation whose `check_type` is not in
+`data.config.required_checks` denies deployment outright, with reasons
+listing the check types it did not expect, rather than being silently
+ignored. This means a custom check type is not optional bookkeeping - it is
+mandatory the moment you sign one. Before adding a new check type to the
+pipeline, you must also add it to `data.config.required_checks` (via `gate
+evaluate --required-checks` or a `--data` JSON file); see [Policy
+Configuration](#policy-configuration) below. Each custom check type still
+needs its own key pair and its own entry in `--authorized-signers`.
 
 ## Policy Configuration
 
@@ -244,7 +249,7 @@ The bundled `policies/deploy.rego` is parameterized through `data.config`:
 | Key | Default | Meaning |
 |---|---|---|
 | `required_checks` | `["sast", "sca", "config", "secret"]` | Check types that must appear in the chain. |
-| `fail_on_severity` | `"critical"` | Minimum finding severity that blocks deployment. |
+| `fail_on_severity` | `"high"` | Minimum finding severity that blocks deployment. |
 | `zero_tolerance_checks` | `["secret"]` | Check types where any finding, of any severity, blocks deployment. |
 
 Set these via `gate evaluate --required-checks` / `--fail-on-severity` /

@@ -21,7 +21,7 @@ useDefault = true
 # "regexes" in the same [allowlist] block as independent alternatives, so
 # the fake-token regex alone would exempt that token anywhere in the repo,
 # defeating the point of anchoring to specific paths. Verified empirically
-# against the gitleaks binary this repository's workflow pins (8.21.2): the
+# against the gitleaks binary this repository's workflow pins (8.30.1): the
 # same secret value placed outside the two allowlisted paths is still
 # flagged once condition = "AND" is set.
 condition = "AND"
