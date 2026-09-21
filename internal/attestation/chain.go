@@ -22,9 +22,9 @@ import (
 
 // Chain holds an ordered sequence of attestations for a single pipeline run.
 type Chain struct {
-	attestations  []types.Attestation
-	nextSignerID  string
-	nextLogEntry  string
+	attestations []types.Attestation
+	nextSignerID string
+	nextLogEntry string
 }
 
 // NewChain creates an empty chain.

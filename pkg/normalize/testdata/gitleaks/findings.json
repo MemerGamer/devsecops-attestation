@@ -1,0 +1,42 @@
+[
+  {
+    "Description": "AWS Access Key",
+    "StartLine": 42,
+    "EndLine": 42,
+    "StartColumn": 15,
+    "EndColumn": 55,
+    "Match": "AKIAIOSFODNN7EXAMPLE",
+    "Secret": "AKIAIOSFODNN7EXAMPLE",
+    "File": "deploy/terraform.tfvars",
+    "SymlinkFile": "",
+    "Commit": "3f2c1a9b8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b",
+    "Entropy": 3.6841998,
+    "Author": "Jane Doe",
+    "Email": "jane@example.com",
+    "Date": "2026-08-01T10:15:00Z",
+    "Message": "wip: add deploy vars",
+    "Tags": ["aws", "access-key"],
+    "RuleID": "aws-access-token",
+    "Fingerprint": "3f2c1a9b8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b:deploy/terraform.tfvars:aws-access-token:42"
+  },
+  {
+    "Description": "Generic API Key",
+    "StartLine": 7,
+    "EndLine": 7,
+    "StartColumn": 10,
+    "EndColumn": 48,
+    "Match": "api_key = \"sk_live_51H8qYt0000000000000000\"",
+    "Secret": "sk_live_51H8qYt0000000000000000",
+    "File": "config/settings.py",
+    "SymlinkFile": "",
+    "Commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+    "Entropy": 4.1123,
+    "Author": "John Smith",
+    "Email": "john@example.com",
+    "Date": "2026-07-15T09:00:00Z",
+    "Message": "add settings",
+    "Tags": ["generic-api-key"],
+    "RuleID": "generic-api-key",
+    "Fingerprint": ""
+  }
+]

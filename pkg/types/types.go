@@ -3,7 +3,11 @@
 // so attestations can be stored, transmitted, and verified across systems.
 package types
 
-import "time"
+import (
+	"fmt"
+	"regexp"
+	"time"
+)
 
 // SecurityCheckType identifies which kind of scan produced a result.
 type SecurityCheckType string
@@ -14,6 +18,24 @@ const (
 	CheckConfig SecurityCheckType = "config"
 	CheckSecret SecurityCheckType = "secret"
 )
+
+// checkTypePattern defines the syntax for a valid check type: a lowercase
+// letter followed by up to 31 lowercase letters, digits, or hyphens. This
+// keeps check types identifier-like while allowing arbitrary custom types
+// beyond the four built-in constants (e.g. "dast", "license").
+var checkTypePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+// ValidateCheckType reports whether s is a syntactically valid check type.
+// The system does not restrict check types to the four built-in constants;
+// any pipeline step can introduce a new check type as long as it matches
+// this pattern, so custom scanners (e.g. "dast", "license") are supported
+// without modifying this package.
+func ValidateCheckType(s string) error {
+	if !checkTypePattern.MatchString(s) {
+		return fmt.Errorf("invalid check type %q: must match %s", s, checkTypePattern.String())
+	}
+	return nil
+}
 
 // Severity mirrors common vulnerability severity scales.
 type Severity string
@@ -79,7 +101,7 @@ type Attestation struct {
 
 	// Cryptographic proof (Phase 1)
 	SignerPublicKey []byte `json:"signer_public_key"` // Ed25519 public key (raw 32 bytes)
-	Signature       []byte `json:"signature"`          // Ed25519 signature over canonical payload
+	Signature       []byte `json:"signature"`         // Ed25519 signature over canonical payload
 
 	// SignerID is a human-readable identity for the signer (e.g. "github-runner:ubuntu-22.04").
 	// Included in the canonical payload so it is cryptographically bound to the attestation.
@@ -108,4 +130,18 @@ type PolicyInput struct {
 type GateDecision struct {
 	Allow   bool     `json:"allow"`
 	Reasons []string `json:"reasons"` // human-readable explanation
+
+	// EffectiveConfig is the fully resolved data.config used for this
+	// evaluation (required_checks, fail_on_severity, zero_tolerance_checks),
+	// with any parameter not explicitly overridden filled in from the
+	// bundled policy's own defaults. Populated by the gate CLI so the
+	// decision record is self-describing even when no --data file or
+	// override flag was given. Omitted from JSON when not populated.
+	EffectiveConfig map[string]any `json:"effective_config,omitempty"`
+
+	// ConfigHash is the hex-encoded SHA-256 of EffectiveConfig's canonical
+	// JSON encoding. It is the value "gate config-hash" prints and
+	// "gate evaluate --config-hash" checks against. Omitted from JSON when
+	// not populated.
+	ConfigHash string `json:"config_hash,omitempty"`
 }

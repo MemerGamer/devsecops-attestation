@@ -1,0 +1,18 @@
+{
+  "check_type": "terraform",
+  "results": {
+    "passed_checks": [
+      { "check_id": "CKV_AWS_1", "check_name": "Ensure bucket is encrypted", "file_path": "/main.tf" },
+      { "check_id": "CKV_AWS_2", "check_name": "Ensure bucket versioning is enabled", "file_path": "/main.tf" }
+    ],
+    "failed_checks": []
+  },
+  "summary": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "parsing_errors": 0,
+    "resource_count": 2,
+    "checkov_version": "3.2.0"
+  }
+}

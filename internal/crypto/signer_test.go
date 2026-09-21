@@ -229,10 +229,10 @@ func TestSignAndVerify(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		setup     func(*types.Attestation) // mutations applied after Sign
-		signKP    *KeyPair
-		wantErr   string // empty = expect nil from Verify
+		name    string
+		setup   func(*types.Attestation) // mutations applied after Sign
+		signKP  *KeyPair
+		wantErr string // empty = expect nil from Verify
 	}{
 		{
 			name:    "valid attestation",
