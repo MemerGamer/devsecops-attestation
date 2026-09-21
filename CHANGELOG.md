@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.4.0](https://github.com/MemerGamer/devsecops-attestation/compare/v0.3.2...v0.4.0) (2026-09-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* attest --fail-on, attest normalize --fail-on, and the bundled deploy.rego policy now default to "high" instead of "critical". Operators pinning --config-hash must recompute it, and any pipeline relying on the previous critical-only default must now pass --fail-on-severity critical explicitly to keep prior behavior.
+* signed results must use canonical lowercase severities (info, low, medium, high, critical); non-canonical severities are rejected at signing and deny at the gate. Use --tool-format or attest normalize to convert raw scanner output.
+
+### Features
+
+* accept signing key from file or environment in attest ([83ea084](https://github.com/MemerGamer/devsecops-attestation/commit/83ea08403cece61adb5a22f7283b906006b54e53))
+* add normalize, tools and sign subcommands to attest ([6cd415d](https://github.com/MemerGamer/devsecops-attestation/commit/6cd415da38a01a28b135463c99b857e1ecf31b48))
+* add reusable composite actions for setup, signing and gating ([4b2a289](https://github.com/MemerGamer/devsecops-attestation/commit/4b2a289d9833bd6a9e2b3004944807b899f3e0a4))
+* add tool-output normalizers and open check types ([c37f78b](https://github.com/MemerGamer/devsecops-attestation/commit/c37f78bb1c6220b9405e9041b0b383be1a4c8163))
+* bind attestation chains and the gate to a target commit ([2603cef](https://github.com/MemerGamer/devsecops-attestation/commit/2603cef713eec6f8fb7ad443bc2d6f8fe3ddbf13))
+* canonical parameterized deploy policy with config pinning ([5cde56d](https://github.com/MemerGamer/devsecops-attestation/commit/5cde56dbb741ce1df133f5b0595029579fd8e567))
+* commit binding and pinned signer identity in actions ([b9b6bfc](https://github.com/MemerGamer/devsecops-attestation/commit/b9b6bfc9fcf4e68357c9c05cc67e65da92864faa))
+* generalize attestation pipeline (normalizers, open check types, canonical policy) ([88d305a](https://github.com/MemerGamer/devsecops-attestation/commit/88d305ad6c8286702acc7cfcd73564bac0ed9293))
+* require secret scan and zero-tolerance for its findings in deploy gate ([1c43a6d](https://github.com/MemerGamer/devsecops-attestation/commit/1c43a6dcceec7bbbc578ea279a7c29eff3a6a5f5))
+* reusable composite actions, dogfooded pipeline and integration docs ([5dcdcaf](https://github.com/MemerGamer/devsecops-attestation/commit/5dcdcafca1874050ddea22093f4a62aca02d5d2a))
+* seal attestation chains against undeclared check types ([9735d6e](https://github.com/MemerGamer/devsecops-attestation/commit/9735d6ec9400be62eeeb7de577544e730f394199))
+
+
+### Bug Fixes
+
+* accept current semgrep severities and warn-level scan errors ([1ce4310](https://github.com/MemerGamer/devsecops-attestation/commit/1ce43101eb7a7a7bed0e369786a4753eb345f46b))
+* attest command name, quiet usage and help text ([9a56438](https://github.com/MemerGamer/devsecops-attestation/commit/9a56438b3f42e89bfaa47d5dd6663f41a2dcd371))
+* catch exact and Unicode-fold duplicate keys in report normalization ([8246e4b](https://github.com/MemerGamer/devsecops-attestation/commit/8246e4b0c519b5099188cb15a8250175110e32f9))
+* close fail-open paths in normalizer adapters ([bc8a86a](https://github.com/MemerGamer/devsecops-attestation/commit/bc8a86a3d6654a003025efab83a74b2cf683bc11))
+* default blocking threshold to high ([7f1490d](https://github.com/MemerGamer/devsecops-attestation/commit/7f1490d3c4ebfc88a957cb30531e7a69623f606b))
+* **deps:** bump golang.org/x/crypto to v0.57.0 ([b212f66](https://github.com/MemerGamer/devsecops-attestation/commit/b212f6660a3f4643c22a06d8cbf44a1d5cd10d0d))
+* goreleaser image context, syft install and cosign bundle signing ([6327bde](https://github.com/MemerGamer/devsecops-attestation/commit/6327bdebff221649eb5910941075b64089fb29ba))
+* pipeline scanner flags, sigstore bundle verification and doc refs ([42283bc](https://github.com/MemerGamer/devsecops-attestation/commit/42283bce383001db06533d047064442fb5995cd6))
+* remove expression from gate action input description ([1fac501](https://github.com/MemerGamer/devsecops-attestation/commit/1fac501e25a10641be778a7a9f21f40ee90a8d2f))
+* tolerate checkov parsing errors in frameworks with no resources ([6a83522](https://github.com/MemerGamer/devsecops-attestation/commit/6a83522dce004c864e3b71bb81305ca47e4b651e))
+
+
+### CI/CD
+
+* close fail-open gaps and harden the interim pipeline workflow ([90298ea](https://github.com/MemerGamer/devsecops-attestation/commit/90298ea0b6915d9581fe9f0c3ff4e7e6074975db))
+* dogfood composite actions and pin scanners ([b121f89](https://github.com/MemerGamer/devsecops-attestation/commit/b121f89d86a63da8e82b21839dc7aa3ca64fb770))
+* harden scanner steps against report substitution ([8babd3d](https://github.com/MemerGamer/devsecops-attestation/commit/8babd3d10ef6ede867b3d8e5a366637186939031))
+* normalize interim pipeline results with attest and pin semgrep ([bf0ae18](https://github.com/MemerGamer/devsecops-attestation/commit/bf0ae18605141ca7d2a0a5c05ede2dcb2de8d51f))
+
+
+### Documentation
+
+* add integration guide and update architecture for reusable pipeline ([d9629a4](https://github.com/MemerGamer/devsecops-attestation/commit/d9629a48c6be1767a904be27a4c194798c04838e))
+* clarify log entry and signer_id guarantees ([6e8392b](https://github.com/MemerGamer/devsecops-attestation/commit/6e8392b9304544d66277ab0d3c07a98bb25e62a3))
+* document canonical severity requirement ([c76b26f](https://github.com/MemerGamer/devsecops-attestation/commit/c76b26f47e9cfac4233833fcfba88474d7c4a110))
+* fix stale severity defaults, undeclared check types, and pin drift ([0c24e18](https://github.com/MemerGamer/devsecops-attestation/commit/0c24e1831e8c83c7160603f435e3bc6734ce8e37))
+
+
+### Tests
+
+* make signer-id test independent of CI environment ([e927e71](https://github.com/MemerGamer/devsecops-attestation/commit/e927e712149d1a41c666ab8c1b93d177dcb12db1))
+
 ## [0.3.2](https://github.com/MemerGamer/devsecops-attestation/compare/v0.3.1...v0.3.2) (2026-07-10)
 
 
