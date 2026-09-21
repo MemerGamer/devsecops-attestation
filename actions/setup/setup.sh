@@ -39,19 +39,24 @@ write_output() {
 	fi
 }
 
+# Normalize verify-signature case-insensitively: "true"/"True"/"TRUE" all
+# enable it, "false"/"False"/"FALSE" all disable it, and anything else is a
+# misconfiguration that fails closed with a clear error rather than silently
+# skipping signature verification.
+case "${INPUT_VERIFY_SIGNATURE,,}" in
+true) verify_signature=true ;;
+false) verify_signature=false ;;
+*) fail "verify-signature must be 'true' or 'false' (case-insensitive), got '${INPUT_VERIFY_SIGNATURE}'" ;;
+esac
+
 # GitHub release asset downloads intermittently return 504 (observed 4 times
 # in demo CI); retry transient failures rather than failing the step outright
-# while still failing closed on a genuine, persistent error. --retry-all-errors
-# is supported by curl 7.71+ (ubuntu-24.04 ships curl 8.x); on an older curl
-# without it, --retry alone still retries the transient cases that matter here
-# (timeouts, connection resets, 5xx with --retry falls back to --retry
-# covering just the transient/5xx set curl recognizes without the flag), so
-# the flag is added opportunistically and dropped if curl does not support it
-# rather than making the whole step depend on a specific curl version.
-CURL_RETRY_FLAGS=(--retry 5 --retry-delay 3 --connect-timeout 20)
-if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
-	CURL_RETRY_FLAGS+=(--retry-all-errors)
-fi
+# while still failing closed on a genuine, persistent error. Plain --retry
+# already covers the cases that matter here: connect/transfer timeouts,
+# connection resets, and HTTP 408/429/500/502/503/504 responses. It needs no
+# curl-version detection, unlike --retry-all-errors (curl 7.71+), so there is
+# no fallback path to keep in sync or leave untested on an older curl.
+CURL_RETRY_FLAGS=(--retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300)
 
 curl_fetch() {
 	# curl_fetch <url> <output-path>
@@ -126,7 +131,7 @@ else
 	log "downloading ${checksums_url}"
 	curl_fetch "${checksums_url}" "${work_dir}/checksums.txt"
 
-	if [ "${INPUT_VERIFY_SIGNATURE}" = "true" ]; then
+	if [ "${verify_signature}" = "true" ]; then
 		if ! command -v cosign >/dev/null 2>&1; then
 			fail "verify-signature=true (the default) but cosign is not on PATH. Add sigstore/cosign-installer before this step, e.g.:
   - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2

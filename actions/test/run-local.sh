@@ -321,6 +321,34 @@ if command -v shellcheck >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# 9b. setup.sh verify-signature normalization: mixed-case true/false must
+#     both be accepted, and an invalid value must fail closed (exit 1)
+#     rather than silently skipping signature verification.
+# ---------------------------------------------------------------------------
+log "setup.sh: verify-signature case-insensitivity and fail-closed validation"
+rc=0
+env \
+	INPUT_VERSION="source" \
+	INPUT_REPOSITORY="MemerGamer/devsecops-attestation" \
+	INPUT_DOWNLOAD_BASE_URL="unused" \
+	INPUT_INSTALL_DIR="${WORK_DIR}/setup-verify-mixedcase-install" \
+	INPUT_VERIFY_SIGNATURE="False" \
+	GITHUB_ACTION_PATH="${ACTIONS_DIR}/setup" \
+	bash "${ACTIONS_DIR}/setup/setup.sh" || rc=$?
+check "setup.sh verify-signature=False (mixed case) accepted" 0 "${rc}"
+
+rc=0
+env \
+	INPUT_VERSION="source" \
+	INPUT_REPOSITORY="MemerGamer/devsecops-attestation" \
+	INPUT_DOWNLOAD_BASE_URL="unused" \
+	INPUT_INSTALL_DIR="${WORK_DIR}/setup-verify-invalid-install" \
+	INPUT_VERIFY_SIGNATURE="yes" \
+	GITHUB_ACTION_PATH="${ACTIONS_DIR}/setup" \
+	bash "${ACTIONS_DIR}/setup/setup.sh" || rc=$?
+check "setup.sh verify-signature=yes (invalid) fails closed" 1 "${rc}"
+
+# ---------------------------------------------------------------------------
 # 10. setup.sh download path against a fake local release served over HTTP
 # ---------------------------------------------------------------------------
 log "setup.sh: download path against fake local release"
