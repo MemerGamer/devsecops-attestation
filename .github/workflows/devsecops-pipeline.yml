@@ -120,8 +120,8 @@ jobs:
           asset="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
           checksums="trivy_${TRIVY_VERSION}_checksums.txt"
           base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
-          curl -sfLO "${base}/${asset}"
-          curl -sfLO "${base}/${checksums}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${asset}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${checksums}"
           sha256sum --ignore-missing -c "${checksums}"
           tar xzf "${asset}" trivy
           sudo install -m 0755 trivy /usr/local/bin/trivy
@@ -188,8 +188,8 @@ jobs:
           asset="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           checksums="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
-          curl -sfLO "${base}/${asset}"
-          curl -sfLO "${base}/${checksums}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${asset}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${checksums}"
           sha256sum --ignore-missing -c "${checksums}"
           tar xzf "${asset}" gitleaks
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
