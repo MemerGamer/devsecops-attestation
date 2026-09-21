@@ -173,10 +173,12 @@ dockers_v2:
 docker_signs:
   - id: images
     cmd: cosign
-    # artifacts is intentionally left unset: with no value docker_signs
-    # signs the DockerImageV2 artifacts that dockers_v2 produces (the
-    # legacy "images" value only matches the old dockers pipe's artifact
-    # types and never matches anything here).
+    # artifacts is intentionally left unset. In goreleaser v2.18.x,
+    # docker_signs' artifacts default already covers the DockerImageV2
+    # artifacts that dockers_v2 produces - the "images" value would select
+    # the same set explicitly, it is not limited to the legacy dockers
+    # pipe's artifact types - so leaving it unset signs exactly the images
+    # this config builds without naming the value redundantly.
     args:
       - "sign"
       - "--yes"

@@ -1,0 +1,92 @@
+name: devsecops-attestation normalize-sign
+description: >-
+  Normalizes a raw security tool report with `attest normalize` (for
+  inspection) and signs it into the attestation chain with
+  `attest sign --tool-format`. Requires the attest binary to already be on
+  PATH (see the setup action).
+author: MemerGamer
+
+inputs:
+  tool:
+    description: Normalize adapter name, e.g. semgrep, trivy, checkov, gitleaks (see `attest tools`).
+    required: true
+  raw-result:
+    description: Path to the raw tool report file to normalize and sign.
+    required: true
+  check-type:
+    description: >-
+      Check type override, e.g. sast, sca, config, secret. Optional: the
+      named tool adapter supplies its own default check type.
+    required: false
+    default: ""
+  signing-key:
+    description: >-
+      128-char hex Ed25519 private key for this check type. Pass from a
+      repository/organization secret, never a literal. The action masks it
+      in logs but the caller must still avoid printing it. It is passed to
+      `attest sign` via the ATTEST_SIGNING_KEY environment variable, not on
+      argv, so it is not visible in /proc/<pid>/cmdline.
+    required: true
+  chain:
+    description: Path to the attestation chain file (read and written).
+    required: false
+    default: attestation-chain.json
+  subject:
+    description: Artifact or application name this attestation is about.
+    required: false
+    default: ${{ github.repository }}
+  target-ref:
+    description: Git SHA or artifact digest this attestation is about.
+    required: false
+    default: ${{ github.sha }}
+  tool-version:
+    description: Version string of the underlying security tool.
+    required: false
+    default: unknown
+  fail-on:
+    description: >-
+      Minimum severity (inclusive) recorded as failing normalization. Purely
+      informational at this stage; the deploy gate is the actual policy
+      decision point. Should match the gate action's fail-on-severity.
+    required: false
+    default: high
+  signer-id:
+    description: >-
+      Human-readable signer identity. Optional: attest derives this from
+      GITHUB_SERVER_URL/GITHUB_REPOSITORY/GITHUB_WORKFLOW/GITHUB_JOB when
+      omitted, which works unchanged on Forgejo Actions runners.
+    required: false
+    default: ""
+  log-entry:
+    description: >-
+      Transparency log reference. Optional: attest derives a run URL from
+      GITHUB_SERVER_URL/GITHUB_REPOSITORY/GITHUB_RUN_ID when omitted.
+    required: false
+    default: ""
+
+outputs:
+  chain:
+    description: Path to the attestation chain file that was appended to.
+    value: ${{ steps.run.outputs.chain }}
+  normalized-result:
+    description: Path to the normalized (pre-signing) canonical JSON result, for inspection/upload.
+    value: ${{ steps.run.outputs.normalized-result }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        INPUT_TOOL: ${{ inputs.tool }}
+        INPUT_RAW_RESULT: ${{ inputs.raw-result }}
+        INPUT_CHECK_TYPE: ${{ inputs.check-type }}
+        INPUT_SIGNING_KEY: ${{ inputs.signing-key }}
+        INPUT_CHAIN: ${{ inputs.chain }}
+        INPUT_SUBJECT: ${{ inputs.subject }}
+        INPUT_TARGET_REF: ${{ inputs.target-ref }}
+        INPUT_TOOL_VERSION: ${{ inputs.tool-version }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_SIGNER_ID: ${{ inputs.signer-id }}
+        INPUT_LOG_ENTRY: ${{ inputs.log-entry }}
+      run: bash "${GITHUB_ACTION_PATH}/normalize-sign.sh"

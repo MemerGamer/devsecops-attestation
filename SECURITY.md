@@ -145,6 +145,28 @@ enforced entirely through the signing key (`--verify-signer` /
 human-readable `SignerID` string. `SignerID` is authentic but not itself
 policy-checked; treat it as an audit trail, not an authorization mechanism.
 
+### Deploy Gate Job: Secret Exposure and Protected Environments
+
+`.github/workflows/devsecops-pipeline.yml`'s `deploy-gate` job builds the
+attestation tooling from source and holds every per-check-type signing key
+secret. GitHub exposes secrets to a `pull_request`-triggered job even for a
+forked PR when the base repository's workflow defines them, so this job
+carries `if:` restricting it to `push` events or a `pull_request` whose
+head repository is this same repository (never a fork), in addition to the
+existing dependabot/renovate exclusion the scanner jobs already had.
+
+This `if:` guard lives in the workflow file itself and is therefore only as
+trustworthy as the workflow file's own protection (branch protection on
+`main`, required review on changes to `.github/workflows/`). For a
+guarantee that does not depend on the workflow YAML, configure the
+`production` environment `deploy-gate` targets as a protected GitHub
+environment (**Settings > Environments > production**) with required
+reviewers and deployment branch restrictions limited to `main`. Both
+mechanisms only prevent the signing job from running against untrusted
+input; neither one is a substitute for the other, and this repository does
+not (and cannot, from within its own files) change the GitHub environment
+settings on your behalf.
+
 ## Threat Model
 
 | Threat | Mitigation |
@@ -162,3 +184,6 @@ policy-checked; treat it as an audit trail, not an authorization mechanism.
 | Policy logic pinned but its parameters silently changed | `--config-hash` pins the effective `data.config`; required whenever `--policy-hash` is set and the configuration is not the bundled defaults |
 | Malformed `data.config` (unrecognized severity, or a required/zero-tolerance value that is not a non-empty array of check types) | The gate CLI validates `--data` files before evaluation; the bundled policy's `config_valid` rule denies deployment for any malformed override that reaches OPA |
 | Finding with an unrecognized severity (typo, unsupported scale, empty string) | The bundled policy always blocks deployment for such a finding instead of silently ignoring it |
+| Forged or overwritten scanner report artifact between the scan job and the signing job ("report substitution") | Each scanner output uploaded and downloaded by exact artifact name into its own directory, not merged; the scan step's own output file is removed before the scanner runs so a stale prior-run file cannot be mistaken for this run's output; `if-no-files-found: error` on every upload so a missing report fails the job instead of silently signing nothing |
+| Suppressed finding via an in-repo scanner configuration change (`.gitleaks.toml` allowlist, `.checkov.yaml` skip-check, `# nosemgrep`, `.semgrepignore`, `.trivyignore`) | Outside this tool's control at the crypto/policy layer: mitigated operationally via CODEOWNERS on those files, an out-of-band trusted config passed explicitly to the scanner, and required review on the signing environment; see `actions/README.md`'s "Scanner configuration trust" |
+| Forked pull request or dependabot/renovate PR reaching the signing job and exfiltrating signing keys | `deploy-gate`'s `if:` restricts it to `push` events or a same-repository `pull_request`; a protected `production` GitHub environment with required reviewers is the recommended independent second layer (see "Deploy Gate Job" above) |

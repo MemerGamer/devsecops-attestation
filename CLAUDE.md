@@ -46,6 +46,23 @@ go build -o ./bin/keygen ./cmd/keygen
 go build -o ./bin/attest ./cmd/sign
 go build -o ./bin/verify ./cmd/verify
 go build -o ./bin/gate ./cmd/gate
+
+# Equivalent via Makefile, plus lint, docker, and packaging targets
+make build
+make test
+make test-integration
+make cover
+make lint
+make docker
+make policy-hash
+make snapshot   # local unpublished goreleaser build (make snapshot)
+make clean
+
+# Print the SHA-256 hex of the effective (bundled or file) policy source
+go run ./cmd/gate policy-hash [--policy policies/deploy.rego]
+
+# Print the SHA-256 hex of the effective, fully-resolved policy configuration
+go run ./cmd/gate config-hash [--required-checks ...] [--fail-on-severity ...] [--zero-tolerance-checks ...]
 ```
 
 ## Commit Conventions
@@ -86,36 +103,51 @@ Use conventional commits. Prefix all commit messages with one of:
 
 The system works as follows:
 
-1. Each CI step (SAST, SCA, config, secret scan) runs a security tool and writes a JSON result.
-2. The `sign` binary wraps the result in a `types.Attestation`, sets `SignerID` and `LogEntry`,
-   signs the canonical payload with the check-type-specific Ed25519 key, links it to the previous
-   attestation via SHA-256 digest, and appends it to `attestation-chain.json`.
+1. Each CI step (SAST, SCA, config, secret scan) runs a security tool and writes a raw JSON result
+   in that tool's own native format.
+2. The `sign` binary (built as `attest`) optionally normalizes the raw result via `--tool-format`
+   (delegating to `pkg/normalize`, or via `attest normalize` run separately beforehand), wraps the
+   canonical result in a `types.Attestation`, sets `SignerID` and `LogEntry`, signs the canonical
+   payload with the check-type-specific Ed25519 key, links it to the previous attestation via
+   SHA-256 digest, and appends it to `attestation-chain.json`.
 3. The `gate evaluate` binary runs a layered verification sequence before OPA evaluation:
    a. `VerifyChainWithOptions` -- signatures, chain linkage, subject consistency, timestamp
       ordering, max-age, no duplicate check types.
    b. Signer authorization -- per-check-type (`--authorized-signers`) or shared key (`--verify-signer`).
    c. Log entry enforcement -- `--require-log-entries` rejects attestations without a `LogEntry`.
-   d. Policy hash check -- `--policy-hash` pins the SHA-256 of the Rego file before OPA loads it.
-   e. OPA policy evaluation -- the verified, authorized chain is evaluated against Rego.
+   d. Policy hash check -- `--policy-hash` pins the SHA-256 of the Rego source (file or the
+      embedded default) before OPA loads it.
+   e. Config hash check -- `--config-hash` pins the SHA-256 of the fully resolved `data.config`;
+      required whenever `--policy-hash` is set and the effective configuration is non-default.
+   f. OPA policy evaluation -- the verified, authorized chain is evaluated against Rego,
+      parameterized by `data.config`.
 4. If the policy allows, deployment proceeds. If blocked, the pipeline fails with reasons.
 
 ## Package Structure
 
 ```
 pkg/types/          -- core data structures (Attestation, SecurityResult, PolicyInput, etc.)
+pkg/normalize/       -- per-tool adapters translating raw scanner JSON into canonical
+                         findings (semgrep, trivy, checkov, gitleaks, cargo-audit, mix_audit,
+                         sobelow, generic); fail closed on unrecognized input
 internal/crypto/    -- Ed25519 sign, verify, digest, CanonicalPayload
 internal/attestation/ -- chain building (Chain.Add, SetNextSignerID, SetNextLogEntry)
                          and verification (VerifyChain, VerifyChainWithOptions)
 internal/policy/    -- OPA integration (Evaluator, EvaluateFromFile, DefaultPolicy)
 internal/threshold/ -- threshold signing interfaces (MSc: simple multisig; PhD: FROST)
 cmd/keygen/         -- CLI: generate Ed25519 key pair
-cmd/sign/           -- CLI: sign a scan result and append to chain
+cmd/sign/           -- CLI: normalize (optional) and sign a scan result, append to chain
 cmd/verify/         -- CLI: verify chain integrity
 cmd/gate/           -- CLI: verify chain, authorize signers, enforce log entries,
-                         check policy hash, evaluate OPA policy
+                         check policy hash and config hash, evaluate OPA policy
 test/integration/   -- integration tests (build tag: integration)
-.github/workflows/  -- GitHub Actions pipeline
+.github/workflows/  -- GitHub Actions pipeline, release-please, dependabot auto-merge
 policies/           -- canonical Rego policy files, embedded into internal/policy via go:embed
+actions/            -- bash-only composite actions (setup, normalize-sign, gate) for consumer
+                         CI/CD pipelines on GitHub or Forgejo; actions/test/run-local.sh
+                         exercises all three without a real runner
+Dockerfile, Dockerfile.goreleaser, .goreleaser.yaml, Makefile
+                     -- container image, release archive/OCI image packaging, build helpers
 ```
 
 ## PhD Extension Points
@@ -150,10 +182,29 @@ as the MSc contribution. FROST and network gossip are PhD territory.
   consumed and reset to "" by the next `Chain.Add` call.
 - The gate accepts either `--verify-signer` (single shared key) or `--authorized-signers`
   (per-check-type map). Neither can be omitted. The Go-level check runs before OPA.
+- `pkg/normalize` adapters fail closed: each requires a schema marker unique to its tool's
+  native report format and rejects input that lacks it, rather than silently normalizing to
+  zero findings, which would be indistinguishable from a genuinely clean scan.
+- Policy configuration (`data.config`) is validated fail-closed in two places: the gate CLI
+  rejects a malformed `--data` file before OPA runs, and the bundled policy's own
+  `config_valid` rule independently denies deployment for any malformed override that reaches
+  OPA by another path.
+- `--config-hash` pins the resolved `data.config` (the policy's parameters), a separate trust
+  boundary from `--policy-hash` (the policy's logic). `--config-hash` is required whenever
+  `--policy-hash` is set and the effective configuration is not the bundled defaults.
+- `attest sign --fail-on` and `attest normalize --fail-on` default to `high`, matching the
+  gate's default `--fail-on-severity`, so the signer-side pass determination and the gate-side
+  blocking decision agree unless an operator deliberately sets them apart.
+- The composite actions under `actions/` are bash-only (`shell: bash`, no Node.js runtime), so
+  they run unmodified on both GitHub Actions and Forgejo Actions runners.
+- `actions/gate/gate.sh` distinguishes a policy deny from a pre-evaluation error by whether a
+  `GateDecision` JSON document was written to `--output`: `gate evaluate` writes it on both an
+  allow and a deny, but never on an error (unverified chain, unauthorized signer, missing log
+  entry, hash mismatch). Only a parsed `GateDecision` is subject to the `expect` input.
 
 ## Test Coverage
 
-Current total coverage is approximately 93%. The remaining uncovered statements (~7%) are all
+Current total coverage is approximately 97%. The remaining uncovered statements are all
 justified unreachable defensive error paths:
 
 | Pattern | Location | Why unreachable |
