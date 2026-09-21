@@ -16,7 +16,11 @@ set -euo pipefail
 : "${INPUT_REPOSITORY:?INPUT_REPOSITORY is required}"
 : "${INPUT_DOWNLOAD_BASE_URL:?INPUT_DOWNLOAD_BASE_URL is required}"
 : "${INPUT_INSTALL_DIR:?INPUT_INSTALL_DIR is required}"
-: "${INPUT_VERIFY_SIGNATURE:=false}"
+# Unset means "not provided": default to the documented "true". A value
+# that is explicitly set but empty is a misconfiguration, not "disabled" -
+# leave it as-is so the case statement below fails closed with a clear
+# error instead of silently skipping signature verification.
+INPUT_VERIFY_SIGNATURE="${INPUT_VERIFY_SIGNATURE-true}"
 : "${GITHUB_ACTION_PATH:?GITHUB_ACTION_PATH is required (set by the runner for composite actions)}"
 
 install_dir="${INPUT_INSTALL_DIR}"
@@ -42,8 +46,10 @@ write_output() {
 # Normalize verify-signature case-insensitively: "true"/"True"/"TRUE" all
 # enable it, "false"/"False"/"FALSE" all disable it, and anything else is a
 # misconfiguration that fails closed with a clear error rather than silently
-# skipping signature verification.
-case "${INPUT_VERIFY_SIGNATURE,,}" in
+# skipping signature verification. Uses tr rather than ${var,,} so this
+# works on bash 3.2 (e.g. macOS's default /bin/bash), not just bash 4+.
+verify_signature_lower="$(printf '%s' "${INPUT_VERIFY_SIGNATURE}" | tr '[:upper:]' '[:lower:]')"
+case "${verify_signature_lower}" in
 true) verify_signature=true ;;
 false) verify_signature=false ;;
 *) fail "verify-signature must be 'true' or 'false' (case-insensitive), got '${INPUT_VERIFY_SIGNATURE}'" ;;
