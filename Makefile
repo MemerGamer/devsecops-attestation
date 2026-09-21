@@ -67,9 +67,14 @@ docker:
 policy-hash:
 	go run ./cmd/gate policy-hash
 
-## snapshot: build a local, unpublished release with goreleaser.
+## snapshot: build a local, unpublished release with goreleaser. Skips
+## publish, sign, and sbom (no registry, signing, or syft credentials
+## assumed locally). Building the docker_v2 images additionally requires a
+## buildx builder capable of the target platforms (e.g. `docker buildx
+## create --use`); set REGISTRY to override the default ghcr.io image
+## prefix used by .goreleaser.yaml.
 snapshot:
-	goreleaser release --snapshot --clean
+	REGISTRY=$${REGISTRY:-ghcr.io} goreleaser release --snapshot --clean --skip=publish,sign,sbom
 
 ## clean: remove build, release, and coverage artifacts.
 clean:

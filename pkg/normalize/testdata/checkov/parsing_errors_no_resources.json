@@ -1,0 +1,15 @@
+{
+  "check_type": "terraform_plan",
+  "results": {
+    "passed_checks": [],
+    "failed_checks": []
+  },
+  "summary": {
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "parsing_errors": 4,
+    "resource_count": 0,
+    "checkov_version": "3.3.19"
+  }
+}

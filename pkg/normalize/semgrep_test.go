@@ -166,6 +166,66 @@ func TestSemgrepNormalizer_Normalize(t *testing.T) {
 	})
 }
 
+func TestSemgrepNormalizer_CanonicalSeverities(t *testing.T) {
+	f, err := os.Open("testdata/semgrep/canonical_severities.json")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer f.Close()
+
+	findings, _, err := semgrepNormalizer{}.Normalize(f)
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if len(findings) != 4 {
+		t.Fatalf("len(findings) = %d, want 4", len(findings))
+	}
+
+	want := []string{"critical", "high", "medium", "low"}
+	for i, w := range want {
+		if string(findings[i].Severity) != w {
+			t.Errorf("findings[%d].Severity = %q, want %q", i, findings[i].Severity, w)
+		}
+	}
+}
+
+func TestSemgrepNormalizer_WarnLevelErrorsDoNotBlock(t *testing.T) {
+	f, err := os.Open("testdata/semgrep/warn_errors.json")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer f.Close()
+
+	findings, _, err := semgrepNormalizer{}.Normalize(f)
+	if err != nil {
+		t.Fatalf("Normalize() error = %v, want nil (warn-level errors should not block)", err)
+	}
+	if len(findings) != 1 {
+		t.Errorf("len(findings) = %d, want 1", len(findings))
+	}
+}
+
+func TestSemgrepNormalizer_ErrorLevelErrorsBlock(t *testing.T) {
+	f, err := os.Open("testdata/semgrep/error_level_errors.json")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer f.Close()
+
+	_, _, err = semgrepNormalizer{}.Normalize(f)
+	if err == nil {
+		t.Error("Normalize() expected error for error-level scan error, got nil")
+	}
+}
+
+func TestSemgrepNormalizer_MissingLevelTreatedAsBlocking(t *testing.T) {
+	bad := `{"results":[],"errors":[{"code":1,"message":"unknown failure"}]}`
+	_, _, err := semgrepNormalizer{}.Normalize(stringsReader(bad))
+	if err == nil {
+		t.Error("Normalize() expected error for error entry with no level (fail-closed), got nil")
+	}
+}
+
 func TestSemgrepNormalizer_RegisteredInDefaultRegistry(t *testing.T) {
 	n, err := Get("semgrep")
 	if err != nil {

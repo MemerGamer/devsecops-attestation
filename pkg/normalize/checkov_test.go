@@ -160,18 +160,57 @@ func TestCheckovNormalizer_Normalize(t *testing.T) {
 		}
 	})
 
-	t.Run("empty-scan object with parsing_errors > 0 returns error", func(t *testing.T) {
-		_, _, err := checkovNormalizer{}.Normalize(stringsReader(`{"checkov_version": "3.2.0", "parsing_errors": 2}`))
+	t.Run("empty-scan object with parsing_errors > 0 and resources scanned returns error", func(t *testing.T) {
+		_, _, err := checkovNormalizer{}.Normalize(stringsReader(`{"checkov_version": "3.2.0", "parsing_errors": 2, "resource_count": 5}`))
 		if err == nil {
-			t.Error("Normalize() expected error for empty-scan report with parsing errors, got nil")
+			t.Error("Normalize() expected error for empty-scan report with parsing errors and scanned resources, got nil")
 		}
 	})
 
-	t.Run("single-framework report with parsing_errors > 0 returns error", func(t *testing.T) {
-		bad := `{"check_type":"terraform","results":{"passed_checks":[],"failed_checks":[]},"summary":{"passed":0,"parsing_errors":1}}`
+	t.Run("empty-scan object with parsing_errors > 0 but zero resources is ignored", func(t *testing.T) {
+		findings, passed, err := checkovNormalizer{}.Normalize(stringsReader(`{"checkov_version": "3.2.0", "parsing_errors": 2, "resource_count": 0}`))
+		if err != nil {
+			t.Fatalf("Normalize() error = %v, want nil (parsing errors on zero-resource framework should be ignored)", err)
+		}
+		if len(findings) != 0 {
+			t.Errorf("len(findings) = %d, want 0", len(findings))
+		}
+		if passed != 0 {
+			t.Errorf("passed = %d, want 0", passed)
+		}
+	})
+
+	t.Run("single-framework report with parsing_errors > 0 and checks reported returns error", func(t *testing.T) {
+		bad := `{"check_type":"terraform","results":{"passed_checks":[],"failed_checks":[]},"summary":{"passed":1,"parsing_errors":1}}`
 		_, _, err := checkovNormalizer{}.Normalize(stringsReader(bad))
 		if err == nil {
-			t.Error("Normalize() expected error for report with parsing errors, got nil")
+			t.Error("Normalize() expected error for report with parsing errors and passed checks, got nil")
+		}
+	})
+
+	t.Run("single-framework report with parsing_errors > 0 but no resources scanned or checks reported is ignored", func(t *testing.T) {
+		// This mirrors a real checkov scenario: a framework such as
+		// terraform_plan attempts to parse files that turn out not to
+		// belong to it (arbitrary .json files), records parsing_errors,
+		// but finds zero resources and reports zero passed/failed checks.
+		ok := `{"check_type":"terraform_plan","results":{"passed_checks":[],"failed_checks":[]},"summary":{"passed":0,"failed":0,"parsing_errors":3,"resource_count":0}}`
+		findings, _, err := checkovNormalizer{}.Normalize(stringsReader(ok))
+		if err != nil {
+			t.Fatalf("Normalize() error = %v, want nil (parsing errors on zero-resource framework should be ignored)", err)
+		}
+		if len(findings) != 0 {
+			t.Errorf("len(findings) = %d, want 0", len(findings))
+		}
+	})
+
+	t.Run("multi-framework report ignores parsing errors on empty framework but still fails on a framework with resources", func(t *testing.T) {
+		bad := `[
+			{"check_type":"terraform_plan","results":{"passed_checks":[],"failed_checks":[]},"summary":{"passed":0,"failed":0,"parsing_errors":2,"resource_count":0}},
+			{"check_type":"terraform","results":{"passed_checks":[],"failed_checks":[]},"summary":{"passed":3,"failed":0,"parsing_errors":1,"resource_count":3}}
+		]`
+		_, _, err := checkovNormalizer{}.Normalize(stringsReader(bad))
+		if err == nil {
+			t.Error("Normalize() expected error: second framework has parsing errors and scanned resources")
 		}
 	})
 

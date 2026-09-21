@@ -1,0 +1,23 @@
+# Gitleaks configuration for this repository.
+#
+# Extends gitleaks' built-in default rule set (do not fork or copy it here,
+# so the pipeline keeps picking up upstream rule updates) and allowlists the
+# paths that intentionally carry fake, deterministic secret-shaped strings
+# used as test fixtures for pkg/normalize's gitleaks adapter. Those strings
+# are not real credentials; they exist to exercise the normalizer's parsing
+# and severity mapping.
+#
+# gitleaks auto-loads this file from the scan target's root directory, so no
+# explicit --config flag is required in CI, though the workflow may still
+# pass --config .gitleaks.toml explicitly for clarity.
+title = "devsecops-attestation gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake secrets used as pkg/normalize test fixtures, not real credentials"
+paths = [
+  '''pkg/normalize/testdata/.*''',
+  '''pkg/normalize/.*_test\.go''',
+]

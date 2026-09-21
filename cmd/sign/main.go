@@ -61,9 +61,10 @@ type scanResultInput struct {
 var flags signFlags
 
 var rootCmd = &cobra.Command{
-	Use:     "sign",
-	Short:   "Sign a security check result and append it to the attestation chain",
-	Version: version,
+	Use:          "attest",
+	Short:        "Sign a security check result and append it to the attestation chain",
+	Version:      version,
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runSign(cmd.Context(), flags)
 	},
