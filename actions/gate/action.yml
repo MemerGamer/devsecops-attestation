@@ -56,8 +56,9 @@ inputs:
   target-ref:
     description: >-
       Commit or artifact digest that every attestation's result.target_ref
-      must equal (commit binding), passed as --target-ref. Defaults to
-      ${{ github.sha }}. Set to an empty string to disable the check.
+      must equal (commit binding), passed as --target-ref. Defaults to the
+      commit SHA of the workflow run (github.sha). Set to an empty string to
+      disable the check.
     required: false
     default: ${{ github.sha }}
   max-age:

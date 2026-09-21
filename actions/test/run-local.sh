@@ -435,6 +435,14 @@ for name in ("setup", "normalize-sign", "gate"):
     with open(p) as f:
         d = yaml.safe_load(f)
     assert d["runs"]["using"] == "composite", p
+    # The runner evaluates expressions in metadata and rejects contexts such
+    # as github.* inside descriptions, so descriptions must stay literal.
+    sections = [d.get("inputs") or {}, d.get("outputs") or {}]
+    for section in sections:
+        for key, spec in section.items():
+            desc = (spec or {}).get("description", "")
+            assert "${{" not in desc, f"{p}: expression in description of {key}"
+    assert "${{" not in d.get("description", ""), f"{p}: expression in description"
     print(f"{p}: OK")
 EOF
 check "action.yml validation" 0 "${rc}"
