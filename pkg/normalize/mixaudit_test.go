@@ -296,3 +296,11 @@ func TestRun_MixAuditAdapter(t *testing.T) {
 		}
 	})
 }
+
+func TestMixAuditNormalizer_DuplicateCaseVariantKeyRejected(t *testing.T) {
+	input := `{"pass":true,"Pass":false,"vulnerabilities":[]}`
+	_, _, _, err := mixAuditNormalizer{}.normalize(stringsReader(input))
+	if err == nil {
+		t.Error("normalize() expected error for case-variant duplicate top-level key, got nil")
+	}
+}

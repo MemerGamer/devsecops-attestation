@@ -74,6 +74,10 @@ func (trivyNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error) {
 		return nil, 0, fmt.Errorf("reading trivy report: %w", err)
 	}
 
+	if err := RejectCaseVariantDuplicateKeys(data); err != nil {
+		return nil, 0, fmt.Errorf("trivy report: %w", err)
+	}
+
 	var report trivyReport
 	if err := json.Unmarshal(data, &report); err != nil {
 		return nil, 0, fmt.Errorf("parsing trivy report: %w", err)
