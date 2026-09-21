@@ -55,10 +55,16 @@ jobs:
           # control and reproducible: bumping it (e.g. after a Go security
           # release) is an ordinary PR, not an out-of-band CI drift. Use
           # go-version-file so this job builds with exactly that pinned
-          # toolchain rather than resolving "newest 1.26.x at release time";
-          # the `go` command itself downloads and verifies that toolchain
-          # against sum.golang.org if it is not already the one on the
-          # runner, so no separate integrity check is needed here.
+          # toolchain rather than resolving "newest 1.26.x at release time".
+          # In CI, setup-go reads this toolchain line and installs that
+          # exact version from the runner's tool cache (or the
+          # actions/go-versions manifest) and sets GOTOOLCHAIN=local, so the
+          # go command itself never downloads or verifies a toolchain here.
+          # The sum.golang.org-verified toolchain download only applies to
+          # local builds run with GOTOOLCHAIN=auto against an older
+          # installed Go. The pin's value here is reproducibility (the
+          # exact patch is fixed) and a reviewed bump path, not an
+          # in-CI download/verify step.
           go-version-file: go.mod
           # A signed release build must not restore a Go module/build cache
           # written by another job (e.g. the test matrix); disable
