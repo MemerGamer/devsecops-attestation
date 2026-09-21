@@ -5,6 +5,22 @@
 - Go 1.26 or later
 - `jq` (for local pipeline testing)
 
+## Go toolchain pin
+
+`go.mod` carries both a `go 1.26.0` directive (the minimum language version)
+and a `toolchain go1.26.8` directive (the exact patch used to build signed
+releases; see `.github/workflows/release-please.yml`). This keeps release
+builds reproducible: the same toolchain is downloaded and checksum-verified
+against sum.golang.org on every build, rather than drifting to whatever
+`1.26.x` happens to be newest at release time.
+
+It is not confirmed whether Dependabot's `gomod` updates bump the
+`toolchain` line on its own (it manages `require` entries reliably; the
+`toolchain` directive is not a dependency in the usual sense). Treat a Go
+security release as a manual action item until this is verified: bump
+`toolchain go1.26.x` in `go.mod` to the latest patch, run `go mod tidy`,
+and open a `chore:` PR.
+
 ## Build
 
 ```shell
