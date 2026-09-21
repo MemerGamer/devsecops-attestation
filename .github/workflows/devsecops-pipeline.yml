@@ -92,7 +92,7 @@ jobs:
           # severity configuration; `|| true` covers that so only a
           # crash (no parseable output at all) fails this step. The
           # pass/fail decision belongs to the gate, not this step.
-          semgrep scan --config auto --json --output semgrep-raw.json --no-error-on-empty-scan . || true
+          semgrep scan --config auto --json --output semgrep-raw.json . || true
           jq -e . semgrep-raw.json >/dev/null
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -147,7 +147,7 @@ jobs:
           # (no results_json.json produced) is caught below by mv failing.
           # checkov 3.x writes <output-file-path>/results_json.json, not
           # results.json, when --output-file-path names a directory.
-          checkov -d . --output json --output-file-path checkov-out --quiet --soft-fail
+          checkov -d . --output json --output-file-path checkov-out --quiet --soft-fail --skip-path pkg/normalize/testdata
           mv checkov-out/results_json.json checkov-raw.json
           jq -e . checkov-raw.json >/dev/null
 

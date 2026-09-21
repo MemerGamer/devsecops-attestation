@@ -111,16 +111,19 @@ else
 		command -v cosign >/dev/null 2>&1 || fail "verify-signature=true but cosign is not on PATH"
 
 		log "verifying checksums.txt signature with cosign"
-		curl -fsSL -o "${work_dir}/checksums.txt.sig" "${base_url}/checksums.txt.sig"
-		curl -fsSL -o "${work_dir}/checksums.txt.pem" "${base_url}/checksums.txt.pem"
+		# goreleaser's `signs:` produces a single Sigstore bundle (the
+		# combined signature + certificate + Rekor inclusion proof) rather
+		# than separate .sig/.pem files, since cosign v3 (installed by
+		# sigstore/cosign-installer v4.x) no longer honors
+		# --output-signature/--output-certificate for sign-blob.
+		curl -fsSL -o "${work_dir}/checksums.txt.sigstore.json" "${base_url}/checksums.txt.sigstore.json"
 		# INPUT_REPOSITORY is interpolated into a regex; escape any regex
 		# metacharacters it may contain (a repository name should never have
 		# any, but this keeps the check from silently over-matching or
 		# breaking if it does).
 		escaped_repository="$(printf '%s' "${INPUT_REPOSITORY}" | sed -e 's/[.[\*^$/]/\\&/g')"
 		cosign verify-blob \
-			--signature "${work_dir}/checksums.txt.sig" \
-			--certificate "${work_dir}/checksums.txt.pem" \
+			--bundle "${work_dir}/checksums.txt.sigstore.json" \
 			--certificate-identity-regexp "^https://github\\.com/${escaped_repository}/\\.github/workflows/.+$" \
 			--certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
 			"${work_dir}/checksums.txt" \

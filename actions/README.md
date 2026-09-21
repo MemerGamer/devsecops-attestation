@@ -19,7 +19,10 @@ https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/
 ```
 
 `<ref>` is a tag (e.g. `v1.2.3`), branch, or commit SHA, exactly as with any
-other GitHub/Forgejo Action.
+other GitHub/Forgejo Action. This project does not publish a floating major
+tag (e.g. `@v1`) that moves across releases; pin to an exact release tag
+(e.g. `@v0.4.0`) as shown below, or, for the strongest guarantee, to the
+release commit SHA itself.
 
 Only `github.*` contexts and `GITHUB_*` / `RUNNER_*` environment variables
 that Forgejo Actions also provides are used: `GITHUB_SERVER_URL`,
@@ -47,7 +50,7 @@ instead of living inline in YAML.
 | `repository` | no | `MemerGamer/devsecops-attestation` | `owner/repo`, used for the cosign certificate-identity check. |
 | `download-base-url` | no | `${{ github.server_url }}/MemerGamer/devsecops-attestation/releases/download` | Base URL archives are downloaded from. Override for Forgejo or a private mirror. |
 | `install-dir` | no | `${{ runner.temp }}/devsecops-attestation/bin` | Install directory, added to `PATH`. |
-| `verify-signature` | no | `false` | When `true` and `cosign` is on `PATH`, verifies `checksums.txt` against its cosign `sign-blob` signature/certificate before trusting it. No-op (with a log notice) if cosign is unavailable. |
+| `verify-signature` | no | `false` | When `true`, verifies `checksums.txt` against its cosign `sign-blob` Sigstore bundle (`checksums.txt.sigstore.json`) before trusting it; fails the step if `cosign` is not on `PATH`. |
 
 | Output | Description |
 |---|---|
@@ -191,7 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: MemerGamer/devsecops-attestation/actions/setup@v1
+      - uses: MemerGamer/devsecops-attestation/actions/setup@v0.4.0
         with:
           version: "1.2.3"
 
@@ -200,31 +203,31 @@ jobs:
           pattern: "*-raw"
           merge-multiple: true
 
-      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v1
+      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: semgrep
           raw-result: semgrep-results.json
           signing-key: ${{ secrets.SAST_SIGNING_KEY }}
 
-      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v1
+      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: trivy
           raw-result: trivy-results.json
           signing-key: ${{ secrets.SCA_SIGNING_KEY }}
 
-      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v1
+      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: checkov
           raw-result: checkov-results.json
           signing-key: ${{ secrets.CONFIG_SIGNING_KEY }}
 
-      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v1
+      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: gitleaks
           raw-result: gitleaks-results.json
           signing-key: ${{ secrets.SECRET_SIGNING_KEY }}
 
-      - uses: MemerGamer/devsecops-attestation/actions/gate@v1
+      - uses: MemerGamer/devsecops-attestation/actions/gate@v0.4.0
         with:
           chain: attestation-chain.json
           authorized-signers: >-
@@ -248,7 +251,7 @@ Once this repository is mirrored to Forgejo, point `uses:` at the Forgejo
 form instead of the GitHub one:
 
 ```yaml
-- uses: https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions/setup@v1
+- uses: https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions/setup@v0.4.0
   with:
     version: "1.2.3"
     download-base-url: https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/releases/download

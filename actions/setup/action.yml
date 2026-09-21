@@ -36,9 +36,9 @@ inputs:
   verify-signature:
     description: >-
       When "true", verify checksums.txt against its cosign sign-blob
-      signature and certificate before trusting it; requires cosign on PATH
-      and fails the step if cosign is not found (never silently skips the
-      check).
+      Sigstore bundle (checksums.txt.sigstore.json) before trusting it;
+      requires cosign on PATH and fails the step if cosign is not found
+      (never silently skips the check).
     required: false
     default: "false"
 

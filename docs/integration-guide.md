@@ -77,11 +77,15 @@ against `checksums.txt` (hard failure on a missing entry or mismatch), and
 optionally verifies the checksums file's cosign signature:
 
 ```yaml
-- uses: MemerGamer/devsecops-attestation/actions/setup@v1
+- uses: MemerGamer/devsecops-attestation/actions/setup@v0.4.0
   with:
     version: "1.2.3"
     verify-signature: "true"   # requires cosign on PATH
 ```
+
+This project does not publish a floating major tag (e.g. `@v1`) that moves
+across releases; pin `@<ref>` to an exact release tag as shown above, or,
+for the strongest guarantee, to the release commit SHA itself.
 
 `version: source` builds the binaries with `go build` from the action's own
 checkout instead of downloading a release; useful for dogfooding this
@@ -160,17 +164,17 @@ jobs:
     needs: [sast, sca, config, secret]
     steps:
       - uses: actions/checkout@v4
-      - uses: MemerGamer/devsecops-attestation/actions/setup@v1
+      - uses: MemerGamer/devsecops-attestation/actions/setup@v0.4.0
         with: { version: "1.2.3" }
       - uses: actions/download-artifact@v4
         with: { pattern: "*-raw", merge-multiple: true }
-      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v1
+      - uses: MemerGamer/devsecops-attestation/actions/normalize-sign@v0.4.0
         with:
           tool: semgrep
           raw-result: semgrep-results.json
           signing-key: ${{ secrets.SAST_SIGNING_KEY }}
       # ... one normalize-sign step per scanner
-      - uses: MemerGamer/devsecops-attestation/actions/gate@v1
+      - uses: MemerGamer/devsecops-attestation/actions/gate@v0.4.0
         with:
           chain: attestation-chain.json
           authorized-signers: >-
@@ -279,7 +283,7 @@ GitHub shorthand, and override `download-base-url` on `actions/setup`
 explicitly (its default only points at the GitHub release):
 
 ```yaml
-- uses: https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions/setup@v1
+- uses: https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions/setup@v0.4.0
   with:
     version: "1.2.3"
     download-base-url: https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/releases/download
