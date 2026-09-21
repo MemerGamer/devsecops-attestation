@@ -34,20 +34,21 @@ func main() {
 }
 
 type signFlags struct {
-	checkType     string
-	tool          string
-	toolFormat    string
-	failOn        string
-	toolVersion   string
-	resultFile    string
-	targetRef     string
-	subject       string
-	signingKey    string
-	signerID      string
-	logEntry      string
-	chain         string
-	out           string
-	noEnvDefaults bool
+	checkType      string
+	tool           string
+	toolFormat     string
+	failOn         string
+	toolVersion    string
+	resultFile     string
+	targetRef      string
+	subject        string
+	signingKey     string
+	signingKeyFile string
+	signerID       string
+	logEntry       string
+	chain          string
+	out            string
+	noEnvDefaults  bool
 }
 
 // scanResultInput is the JSON format read from the --result file.
@@ -98,7 +99,8 @@ func registerSignFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&flags.resultFile, "result", "", "path to JSON scan result file (required)")
 	cmd.Flags().StringVar(&flags.targetRef, "target-ref", "", "git SHA or artifact digest (required)")
 	cmd.Flags().StringVar(&flags.subject, "subject", "", "artifact or application name (required)")
-	cmd.Flags().StringVar(&flags.signingKey, "signing-key", "", "128-char hex Ed25519 private key (required)")
+	cmd.Flags().StringVar(&flags.signingKey, "signing-key", "", "128-char hex Ed25519 private key, passed on argv (discouraged: visible in /proc/<pid>/cmdline on shared runners; prefer --signing-key-file or ATTEST_SIGNING_KEY)")
+	cmd.Flags().StringVar(&flags.signingKeyFile, "signing-key-file", "", "path to a file containing the 128-char hex Ed25519 private key (whitespace trimmed)")
 	cmd.Flags().StringVar(&flags.signerID, "signer-id", "", "human-readable signer identity, e.g. github-runner:ubuntu-22.04 (optional; derived from CI env vars when empty, see --no-env-defaults)")
 	cmd.Flags().StringVar(&flags.logEntry, "log-entry", "", "transparency log URL or reference for this attestation (optional; derived from CI env vars when empty, see --no-env-defaults)")
 	cmd.Flags().StringVar(&flags.chain, "chain", "attestation-chain.json", "path to chain file (read and write)")
@@ -108,7 +110,6 @@ func registerSignFlags(cmd *cobra.Command) {
 	cmd.MarkFlagRequired("result")
 	cmd.MarkFlagRequired("target-ref")
 	cmd.MarkFlagRequired("subject")
-	cmd.MarkFlagRequired("signing-key")
 }
 
 func init() {
@@ -155,6 +156,45 @@ func resolveToolAndCheckType(f *signFlags) error {
 	return nil
 }
 
+// resolveSigningKey determines the hex-encoded Ed25519 private key to sign
+// with, from exactly one of three sources, in this priority order:
+// --signing-key, --signing-key-file, then the ATTEST_SIGNING_KEY
+// environment variable. --signing-key is kept for backward compatibility
+// but is discouraged: it is visible in /proc/<pid>/cmdline for the
+// process's lifetime, which matters on shared CI runners. lookup is
+// injected so tests can supply a fake environment instead of mutating the
+// process one.
+func resolveSigningKey(f signFlags, lookup func(string) (string, bool)) (string, error) {
+	haveFlag := f.signingKey != ""
+	haveFile := f.signingKeyFile != ""
+
+	if haveFlag && haveFile {
+		return "", fmt.Errorf("only one of --signing-key or --signing-key-file may be set")
+	}
+
+	if haveFlag {
+		return f.signingKey, nil
+	}
+
+	if haveFile {
+		data, err := os.ReadFile(f.signingKeyFile)
+		if err != nil {
+			return "", fmt.Errorf("reading signing key file %s: %w", f.signingKeyFile, err)
+		}
+		key := strings.TrimSpace(string(data))
+		if key == "" {
+			return "", fmt.Errorf("signing key file %s is empty", f.signingKeyFile)
+		}
+		return key, nil
+	}
+
+	if envKey, ok := lookup("ATTEST_SIGNING_KEY"); ok && envKey != "" {
+		return envKey, nil
+	}
+
+	return "", fmt.Errorf("signing key required: set exactly one of --signing-key, --signing-key-file, or ATTEST_SIGNING_KEY")
+}
+
 func runSign(_ context.Context, f signFlags) error {
 	if err := resolveToolAndCheckType(&f); err != nil {
 		return err
@@ -165,7 +205,12 @@ func runSign(_ context.Context, f signFlags) error {
 		return err
 	}
 
-	privBytes, err := hex.DecodeString(f.signingKey)
+	signingKeyHex, err := resolveSigningKey(f, os.LookupEnv)
+	if err != nil {
+		return err
+	}
+
+	privBytes, err := hex.DecodeString(signingKeyHex)
 	if err != nil {
 		return fmt.Errorf("decoding signing key hex: %w", err)
 	}
