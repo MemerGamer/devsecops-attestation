@@ -7,7 +7,7 @@
 #
 # Default semantics (used when no data.config overrides are supplied):
 #   - Required checks: sast, sca, config, secret
-#   - Blocking severity threshold: critical (findings at or above this
+#   - Blocking severity threshold: high (findings at or above this
 #     severity block deployment)
 #   - Zero-tolerance check types: secret (any finding of any severity on
 #     these check types blocks deployment, regardless of fail_on_severity)
@@ -118,11 +118,11 @@ required_checks := {c | some c in data.config.required_checks} if {
 }
 
 # fail_on_severity is the minimum severity (inclusive) that blocks
-# deployment. Falls back to "critical" when data.config.fail_on_severity is
+# deployment. Falls back to "high" when data.config.fail_on_severity is
 # absent. This mirrors the raw override value (even when invalid) so
 # deny_reasons can report exactly what was configured; blocking_threshold
 # below is the fail-closed value actually used for comparisons.
-default fail_on_severity := "critical"
+default fail_on_severity := "high"
 
 fail_on_severity := data.config.fail_on_severity if {
 	data.config.fail_on_severity
@@ -237,7 +237,8 @@ deny_reasons contains msg if {
 }
 
 # Preserve the original "critical finding(s)" wording when the blocking
-# threshold is the default "critical" severity.
+# threshold is explicitly configured to the "critical" severity (no longer
+# the default, but still a supported value).
 deny_reasons contains msg if {
 	fail_on_severity_ok
 	fail_on_severity == "critical"

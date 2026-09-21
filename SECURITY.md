@@ -103,9 +103,9 @@ instead of being silently ignored.
 
 ### Signer-Side and Gate-Side Severity Thresholds
 
-`attest`'s `--fail-on` (default `critical`) decides the `passed` field baked
+`attest`'s `--fail-on` (default `high`) decides the `passed` field baked
 into each signed attestation: "no finding at or above the signing threshold."
-The gate's `fail_on_severity` (default `critical`, via `--fail-on-severity` or
+The gate's `fail_on_severity` (default `high`, via `--fail-on-severity` or
 `data.config.fail_on_severity`) is evaluated independently against the raw
 findings, but the gate's `failed checks` deny reason also fires whenever any
 attestation carries `passed == false`. In effect, the signer-side threshold

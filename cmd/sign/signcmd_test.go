@@ -184,19 +184,18 @@ func TestRunSign_RejectsNonCanonicalSeverityWithoutToolFormat(t *testing.T) {
 	})
 }
 
-// TestFailOnDefaultIsCritical documents and locks in the fail-on default
-// change: both `sign --fail-on` and `normalize --fail-on` must default to
-// "critical" to match the gate's default --fail-on-severity, rather than
-// the previous "high" default which made the signer-side threshold
-// independently blocking.
-func TestFailOnDefaultIsCritical(t *testing.T) {
-	if got := rootCmd.Flags().Lookup("fail-on").DefValue; got != "critical" {
-		t.Errorf("root --fail-on default = %q, want critical", got)
+// TestFailOnDefaultIsHigh documents and locks in the fail-on default: both
+// `sign --fail-on` and `normalize --fail-on` must default to "high" to
+// match the gate's default --fail-on-severity, so the signer-side threshold
+// and the gate-side threshold do not drift apart out of the box.
+func TestFailOnDefaultIsHigh(t *testing.T) {
+	if got := rootCmd.Flags().Lookup("fail-on").DefValue; got != "high" {
+		t.Errorf("root --fail-on default = %q, want high", got)
 	}
-	if got := signCmd.Flags().Lookup("fail-on").DefValue; got != "critical" {
-		t.Errorf("sign --fail-on default = %q, want critical", got)
+	if got := signCmd.Flags().Lookup("fail-on").DefValue; got != "high" {
+		t.Errorf("sign --fail-on default = %q, want high", got)
 	}
-	if got := normalizeCmd.Flags().Lookup("fail-on").DefValue; got != "critical" {
-		t.Errorf("normalize --fail-on default = %q, want critical", got)
+	if got := normalizeCmd.Flags().Lookup("fail-on").DefValue; got != "high" {
+		t.Errorf("normalize --fail-on default = %q, want high", got)
 	}
 }

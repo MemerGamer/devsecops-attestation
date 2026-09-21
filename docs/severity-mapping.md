@@ -125,7 +125,7 @@ scale:
 ## --fail-on default
 
 Both `attest sign --fail-on` (used with `--tool-format`) and
-`attest normalize --fail-on` default to `critical`, matching the gate's
+`attest normalize --fail-on` default to `high`, matching the gate's
 default `--fail-on-severity`. `Passed` means "no finding at or above this
 threshold"; the threshold is inclusive, so `--fail-on critical` only fails a
 run on a critical finding, while `--fail-on high` fails on both high and

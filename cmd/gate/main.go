@@ -201,7 +201,7 @@ func runConfigHash(f configHashFlags) error {
 // parameters the policy reads, not only the ones a caller happened to pass.
 var (
 	defaultRequiredChecks      = []string{"config", "sast", "sca", "secret"}
-	defaultFailOnSeverity      = "critical"
+	defaultFailOnSeverity      = "high"
 	defaultZeroToleranceChecks = []string{"secret"}
 )
 

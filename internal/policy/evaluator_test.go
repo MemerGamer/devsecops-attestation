@@ -505,7 +505,7 @@ func TestEvaluate(t *testing.T) {
 			wantReasons: []string{"all checks passed"},
 		},
 		{
-			name: "high severity findings on a non-secret check do not block (policy only blocks critical)",
+			name: "high severity findings on a non-secret check block deployment by default",
 			attestations: []types.Attestation{
 				buildAttestation(types.CheckSAST, true, []types.Finding{
 					{ID: "H1", Severity: types.SeverityHigh, Title: "high issue"},
@@ -514,8 +514,8 @@ func TestEvaluate(t *testing.T) {
 				buildAttestation(types.CheckConfig, true, nil),
 				buildAttestation(types.CheckSecret, true, nil),
 			},
-			wantAllow:   true,
-			wantReasons: []string{"all checks passed"},
+			wantAllow:   false,
+			wantReasons: []string{`found 1 finding(s) at or above "high" severity`},
 		},
 		{
 			name: "any secret-scan finding blocks deployment regardless of severity",
@@ -557,7 +557,7 @@ func TestEvaluate(t *testing.T) {
 				buildAttestation(types.CheckConfig, true, nil),
 			},
 			wantAllow:   false,
-			wantReasons: []string{"critical finding"},
+			wantReasons: []string{`found 1 finding(s) at or above "high" severity`},
 		},
 		{
 			name: "failed check blocks deployment",
@@ -579,7 +579,7 @@ func TestEvaluate(t *testing.T) {
 				// config is missing
 			},
 			wantAllow:   false,
-			wantReasons: []string{"critical finding", "missing required checks"},
+			wantReasons: []string{`found 1 finding(s) at or above "high" severity`, "missing required checks"},
 		},
 		{
 			name: "only sast passed, sca and config missing",

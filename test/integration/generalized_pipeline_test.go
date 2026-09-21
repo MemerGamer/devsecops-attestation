@@ -272,9 +272,9 @@ func TestGeneralizedPipelineCustomRequiredChecks(t *testing.T) {
 
 // TestGeneralizedPipelineFailOnSeverityHigh covers scenario (d): a chain
 // containing a semgrep ERROR (high) finding, which the default policy
-// allows (fail_on_severity defaults to "critical", and sast is not a
-// zero-tolerance check type), but which a data.config.fail_on_severity of
-// "high" denies.
+// already denies (fail_on_severity defaults to "high"), and which a
+// data.config.fail_on_severity of "critical" (raising the threshold) would
+// instead allow, since sast is not a zero-tolerance check type.
 func TestGeneralizedPipelineFailOnSeverityHigh(t *testing.T) {
 	subject := types.AttestationSubject{Name: "generalized-app", Digest: "sha256:def456"}
 	keys := map[types.SecurityCheckType]*crypto.KeyPair{}
@@ -308,28 +308,29 @@ func TestGeneralizedPipelineFailOnSeverityHigh(t *testing.T) {
 	chain := saveAndReloadChain(t, c.Attestations())
 	authorized := authorizedSignersFor(keys)
 
-	// Default policy config: fail_on_severity defaults to "critical", so the
-	// high-severity semgrep finding does not block.
+	// Default policy config: fail_on_severity defaults to "high", so the
+	// high-severity semgrep finding blocks deployment.
 	baseline := runGate(t, chain, authorized, nil)
-	if !baseline.Allow {
-		t.Errorf("baseline Allow=false, want true (default fail_on_severity=critical should not block a high finding); reasons=%v", baseline.Reasons)
-	}
-
-	// data.config.fail_on_severity = "high" must now block the same chain.
-	strict := runGate(t, chain, authorized, map[string]any{
-		"fail_on_severity": "high",
-	})
-	if strict.Allow {
-		t.Error("strict Allow=true, want false with fail_on_severity=high and a high-severity finding present")
+	if baseline.Allow {
+		t.Errorf("baseline Allow=true, want false (default fail_on_severity=high should block a high finding); reasons=%v", baseline.Reasons)
 	}
 	found := false
-	for _, r := range strict.Reasons {
+	for _, r := range baseline.Reasons {
 		if strings.Contains(r, "high") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("reasons %v do not mention the high severity threshold", strict.Reasons)
+		t.Errorf("reasons %v do not mention the high severity threshold", baseline.Reasons)
+	}
+
+	// Raising data.config.fail_on_severity to "critical" must now allow the
+	// same chain, since the semgrep finding is only high, not critical.
+	lenient := runGate(t, chain, authorized, map[string]any{
+		"fail_on_severity": "critical",
+	})
+	if !lenient.Allow {
+		t.Errorf("lenient Allow=false, want true with fail_on_severity=critical and only a high-severity finding present; reasons=%v", lenient.Reasons)
 	}
 }

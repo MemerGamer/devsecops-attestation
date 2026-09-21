@@ -1177,8 +1177,8 @@ func TestLoadPolicyConfigRejectsMalformedDataFile(t *testing.T) {
 func TestBuildEffectiveConfig(t *testing.T) {
 	t.Run("nil overrides produce the bundled policy's defaults", func(t *testing.T) {
 		cfg := buildEffectiveConfig(nil)
-		if cfg["fail_on_severity"] != "critical" {
-			t.Errorf("fail_on_severity = %v, want critical", cfg["fail_on_severity"])
+		if cfg["fail_on_severity"] != "high" {
+			t.Errorf("fail_on_severity = %v, want high", cfg["fail_on_severity"])
 		}
 		required, ok := cfg["required_checks"].([]string)
 		if !ok || len(required) != 4 {
@@ -1262,7 +1262,7 @@ func TestRunConfigHash(t *testing.T) {
 	t.Run("overrides change the printed hash", func(t *testing.T) {
 		var buf strings.Builder
 		if err := captureStdout(&buf, func() error {
-			return runConfigHash(configHashFlags{failOnSeverity: "high"})
+			return runConfigHash(configHashFlags{failOnSeverity: "critical"})
 		}); err != nil {
 			t.Fatalf("runConfigHash() error = %v", err)
 		}
