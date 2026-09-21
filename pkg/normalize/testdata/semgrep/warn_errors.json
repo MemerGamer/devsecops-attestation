@@ -1,0 +1,28 @@
+{
+  "version": "1.177.0",
+  "results": [
+    {
+      "check_id": "python.lang.security.audit.dangerous-subprocess-use.dangerous-subprocess-use",
+      "path": "src/runner.py",
+      "start": { "line": 42, "col": 5 },
+      "end": { "line": 42, "col": 38 },
+      "extra": {
+        "message": "Found user-controlled data passed to subprocess call.",
+        "severity": "ERROR",
+        "metadata": {}
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": 3,
+      "level": "warn",
+      "type": "Syntax error",
+      "message": "Syntax error at line src/broken.py:1:\n `def foo(` was unexpected",
+      "path": "src/broken.py"
+    }
+  ],
+  "paths": {
+    "scanned": ["src/runner.py"]
+  }
+}

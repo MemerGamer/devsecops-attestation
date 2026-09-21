@@ -15,6 +15,7 @@ findings from different tools remain comparable once normalized.
 | semgrep | `ERROR` | high |
 | semgrep | `WARNING` | medium |
 | semgrep | `INFO` | low |
+| semgrep | `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` (case-insensitive) | as reported, via `ParseSeverity` |
 | trivy | its own severity field, used directly | as reported |
 | trivy | `UNKNOWN` | low |
 | checkov | a failed check with no severity reported by the tool | medium |
@@ -52,6 +53,15 @@ findings from different tools remain comparable once normalized.
   `mixAuditSeverity` therefore falls back in order: a CVSS vector (via
   `FromCVSS`), then a reported severity string (via `ParseSeverity`), and
   only maps to high when an advisory supplies neither.
+- semgrep's legacy three-level vocabulary (`ERROR`/`WARNING`/`INFO`) keeps
+  its historical mapping rather than being routed through `ParseSeverity`,
+  because `error` alone would otherwise parse to high (see the synonym
+  table below) which happens to match, but `warning` would parse to medium
+  (correct) while `info` has no synonym entry at all and would be rejected.
+  Current semgrep releases can also emit the canonical five-level
+  vocabulary directly (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) for some rule
+  sources; these are recognized as a fallback through `ParseSeverity`,
+  case-insensitively.
 
 ## Schema-marker requirement (fail-closed on unrecognized input)
 
@@ -66,11 +76,11 @@ pass undetected instead of failing the signing step.
 | Tool | Required marker |
 |------|------------------|
 | trivy | `SchemaVersion == 2` |
-| semgrep | top-level `results` key present; a non-empty `errors` array is also rejected as an incomplete scan |
+| semgrep | top-level `results` key present; an `errors` entry at `level: "error"` (or with no `level` at all, treated as blocking to stay fail-closed) is rejected as an incomplete scan, but a `level: "warn"`/`"warning"` entry (e.g. a single-file `PartialParsing`/syntax-error notice, `{"code":3,"level":"warn","type":"Syntax error",...}`) does not block, since it means one target was degraded, not that the run failed |
 | sobelow | non-empty `sobelow_version` |
 | mix_audit | top-level `pass` key present |
 | cargo-audit | top-level `database` and `lockfile` keys present; `vulnerabilities.count` must match `len(vulnerabilities.list)`, and a positive count with an empty list is rejected |
-| checkov | the bare empty-scan summary object must carry `checkov_version` or `resource_count`; a `summary.parsing_errors` count greater than zero is rejected as an incomplete scan (for both the empty-scan and per-framework report shapes) |
+| checkov | the bare empty-scan summary object must carry `checkov_version` or `resource_count`; a `summary.parsing_errors` count greater than zero is rejected as an incomplete scan (for both the empty-scan and per-framework report shapes) unless that framework's `resource_count`, `passed` and `failed` are all zero, in which case the parsing errors are ignored: this is the real-world `terraform_plan`-style case where a framework attempts to parse files that turn out not to belong to it (e.g. arbitrary `.json` files) and contributes nothing either way, so a parsing error there cannot be hiding a real finding. Any framework that scanned resources or reported checks still fails on parsing errors. |
 | gitleaks | a zero-byte or whitespace-only report file is rejected: a genuine clean gitleaks scan always writes at least `[]`, so an empty file means the scanner crashed or was killed before writing its report |
 
 ## Tool-reported pass state

@@ -20,6 +20,7 @@ Cryptographically verifiable security decisions in CI/CD pipelines.
 - [Quick Start](#quick-start)
 - [GitHub Actions Setup](#github-actions-setup)
 - [Running Tests](#running-tests)
+- [Breaking Changes / Upgrading](#breaking-changes--upgrading)
 - [Documentation](#documentation)
 - [License](#license)
 
@@ -289,6 +290,26 @@ go test -tags integration ./test/integration/...
 
 Integration tests build the CLI binaries and run end-to-end pipeline scenarios
 including tamper-detection attack simulations.
+
+---
+
+## Breaking Changes / Upgrading
+
+### 0.4.0: canonical severities are enforced at signing and at the gate
+
+Signed results must use canonical lowercase severities (`info`, `low`,
+`medium`, `high`, `critical`). `attest sign` rejects any finding whose
+severity is not one of these five exact strings, and the bundled deploy
+policy independently denies a chain that contains a finding with a
+non-canonical severity (`unrecognized_severity_findings`), so a raw scanner
+severity (e.g. semgrep's `ERROR`/`WARNING`/`INFO`, or an uppercase
+`CRITICAL`) can no longer reach a signed attestation or a gate evaluation
+unchanged.
+
+If you sign raw scanner output directly, use `--tool-format <tool>` (with
+`attest sign`) or `attest normalize` to convert it to the canonical severity
+scale first; see [docs/severity-mapping.md](docs/severity-mapping.md) for the
+full per-tool mapping table.
 
 ---
 

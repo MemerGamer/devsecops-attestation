@@ -26,8 +26,30 @@ func (semgrepNormalizer) CheckType() string {
 // consumes. Unrecognized fields are ignored by encoding/json.
 type semgrepReport struct {
 	Results []semgrepResult `json:"results"`
-	Errors  []any           `json:"errors"`
+	Errors  []semgrepError  `json:"errors"`
 	Paths   *semgrepPaths   `json:"paths"`
+}
+
+// semgrepError mirrors one entry of the `errors` array in a semgrep report.
+// Semgrep reports partial-parse problems (syntax errors in a single target
+// file, timeouts on one rule, etc.) at "warn" level alongside hard failures
+// at "error" level; only the latter should abort normalization, since a
+// warn-level entry means a subset of the scan was degraded, not that the
+// scan overall failed. See docs/severity-mapping.md for the full rule.
+type semgrepError struct {
+	Level   string `json:"level"`
+	Message string `json:"message"`
+}
+
+// isBlocking reports whether a semgrep error entry should cause
+// normalization to fail. An entry with level "error" is blocking. An entry
+// with no level at all is treated as blocking too, fail-closed, since older
+// or unexpected semgrep output should not silently be accepted. Any other
+// level ("warn", "warning", etc.) is treated as a partial-parse notice and
+// does not block.
+func (e semgrepError) isBlocking() bool {
+	level := strings.ToLower(strings.TrimSpace(e.Level))
+	return level == "" || level == "error"
 }
 
 type semgrepPaths struct {
@@ -77,8 +99,14 @@ func (semgrepNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error) {
 		return nil, 0, fmt.Errorf("parsing semgrep report: %w", err)
 	}
 
-	if len(report.Errors) > 0 {
-		return nil, 0, fmt.Errorf("semgrep report contains %d scan error(s), scan incomplete", len(report.Errors))
+	blocking := 0
+	for _, e := range report.Errors {
+		if e.isBlocking() {
+			blocking++
+		}
+	}
+	if blocking > 0 {
+		return nil, 0, fmt.Errorf("semgrep report contains %d error-level scan error(s), scan incomplete", blocking)
 	}
 
 	findings := make([]types.Finding, 0, len(report.Results))
@@ -125,7 +153,10 @@ func semgrepTitle(res semgrepResult) string {
 }
 
 // semgrepSeverity maps semgrep's native severity vocabulary to the canonical
-// scale: ERROR -> high, WARNING -> medium, INFO -> low.
+// scale. The legacy three-level vocabulary keeps its historical mapping:
+// ERROR -> high, WARNING -> medium, INFO -> low. Current semgrep versions
+// also emit the canonical five-level vocabulary directly (CRITICAL, HIGH,
+// MEDIUM, LOW), which is parsed case-insensitively via ParseSeverity.
 func semgrepSeverity(s string) (Severity, error) {
 	switch strings.ToUpper(strings.TrimSpace(s)) {
 	case "ERROR":
@@ -135,7 +166,11 @@ func semgrepSeverity(s string) (Severity, error) {
 	case "INFO":
 		return SeverityLow, nil
 	default:
-		return 0, fmt.Errorf("unrecognized semgrep severity %q", s)
+		sev, err := ParseSeverity(s)
+		if err != nil {
+			return 0, fmt.Errorf("unrecognized semgrep severity %q", s)
+		}
+		return sev, nil
 	}
 }
 
