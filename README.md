@@ -46,6 +46,7 @@ The system applies zero-trust principles throughout the attestation lifecycle:
 | Per-check-type signing keys | Each check type (sast, sca, config, secret) uses a dedicated Ed25519 key pair. A compromised SAST key cannot forge SCA attestations. |
 | Cryptographically bound signer identity | `SignerID` (e.g. `github-runner:Linux`) is included in the canonical payload and covered by the Ed25519 signature. Injection after signing is detectable. |
 | Timestamp enforcement | `VerifyChainWithOptions` rejects future timestamps (60 s clock skew tolerance), timestamp regressions, and attestations older than `--max-age`. |
+| Commit binding | `VerifyChainWithOptions` rejects a chain whose attestations disagree with each other on `result.target_ref`. `gate evaluate --target-ref <ref>` (and `--subject <name>`) additionally bind the whole chain to the caller's expected commit and subject, enforced in Go after signer authorization and before policy evaluation. |
 | Policy file integrity | `--policy-hash` pins the SHA-256 of the Rego policy file. A modified policy file is rejected before evaluation. |
 | Policy configuration integrity | `--config-hash` pins the SHA-256 of the fully resolved policy configuration (`required_checks`, `fail_on_severity`, `zero_tolerance_checks`, defaults filled in). If `--policy-hash` is set and the effective configuration is not the bundled defaults, `--config-hash` is required; omitting it is a misconfiguration and the gate exits 1 before OPA runs. `gate config-hash` prints the value to pin. |
 | Fail-closed policy configuration | The bundled policy denies deployment (instead of silently loosening a rule) when `data.config.fail_on_severity` is not a recognized severity, or `data.config.required_checks` / `data.config.zero_tolerance_checks` is present but not a non-empty array of strings. The gate CLI applies the same validation to `--data` files before they reach OPA. |
@@ -184,6 +185,8 @@ flag writes the full decision JSON, including the `effective_config` and
 | `--config-hash` | Expected SHA-256 hex of the fully resolved policy configuration (see `gate config-hash`). Required whenever `--policy-hash` is set and the effective configuration is not the bundled defaults. |
 | `--max-age` | Maximum allowed attestation age, e.g. `24h`. No limit when omitted. |
 | `--require-log-entries` | Fail if any attestation lacks a transparency log entry (`log_entry`). |
+| `--target-ref` | Commit or artifact digest that every attestation's `result.target_ref` must equal exactly (commit binding). Enforced in Go, after signer authorization and before policy evaluation. Empty (the default) disables the check. |
+| `--subject` | Subject name that every attestation's `subject.name` must equal exactly. Enforced alongside `--target-ref`. Empty (the default) disables the check. |
 | `--output` | Write the full `GateDecision` JSON (allow, reasons, effective config, config hash) to this path. |
 
 **Subcommands:**
