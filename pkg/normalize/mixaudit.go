@@ -80,6 +80,10 @@ func (mixAuditNormalizer) normalize(r io.Reader) ([]types.Finding, int, bool, er
 	// clean run. Its absence means the input is not a recognized mix_audit
 	// report (e.g. another tool's output fed to the wrong adapter), so this
 	// is rejected rather than silently defaulting to a clean pass.
+	if err := RejectCaseVariantDuplicateKeys(data); err != nil {
+		return nil, 0, false, fmt.Errorf("mix_audit report: %w", err)
+	}
+
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, 0, false, fmt.Errorf("parsing mix_audit report: %w", err)

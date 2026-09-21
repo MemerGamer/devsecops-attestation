@@ -78,6 +78,10 @@ func (cargoAuditNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error)
 	// not a recognized cargo-audit report (e.g. another tool's output fed
 	// to the wrong adapter), so this is rejected rather than silently
 	// yielding zero findings.
+	if err := RejectCaseVariantDuplicateKeys(data); err != nil {
+		return nil, 0, fmt.Errorf("cargo-audit report: %w", err)
+	}
+
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, 0, fmt.Errorf("parsing cargo-audit report: %w", err)
@@ -87,6 +91,11 @@ func (cargoAuditNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error)
 	}
 	if _, ok := raw["lockfile"]; !ok {
 		return nil, 0, fmt.Errorf("cargo-audit report missing required %q field, not a recognized cargo-audit report", "lockfile")
+	}
+	if vulnsRaw, ok := raw["vulnerabilities"]; ok {
+		if err := RejectCaseVariantDuplicateKeys(vulnsRaw); err != nil {
+			return nil, 0, fmt.Errorf("cargo-audit report %q object: %w", "vulnerabilities", err)
+		}
 	}
 
 	var report cargoAuditReport
@@ -138,11 +147,17 @@ func (cargoAuditNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error)
 
 // cargoAuditVulnSeverity determines a vulnerability's canonical severity: a
 // parseable CVSS vector is scored via cvssBaseScore and mapped with
-// FromCVSS; a missing or unparseable vector maps to high, per
-// docs/severity-mapping.md. An advisory with a CVSS field that fails to
-// parse is treated the same as one with no CVSS field at all, since the
-// tool did supply a value, just not one this adapter can interpret; erroring
-// out entirely would drop the finding rather than surfacing it.
+// FromCVSS; a missing CVSS field (the tool supplied no vector at all) maps
+// to high, per docs/severity-mapping.md.
+//
+// A CVSS field that is present but fails to parse - including a CVSS:4.0
+// vector, which this adapter's parser does not support - maps to critical
+// rather than high. This is deliberately fail-closed: the tool did supply a
+// score, this adapter just cannot interpret it, so treating that the same
+// as "no score at all" would silently under-report an advisory that might
+// be critical. Parsing CVSS 4.0 properly is left as future work; until
+// then, an unparseable vector is assumed to be at least as severe as the
+// worst score this adapter can express.
 func cargoAuditVulnSeverity(advisory cargoAuditAdvisory) Severity {
 	if advisory.CVSS == nil || *advisory.CVSS == "" {
 		return SeverityHigh
@@ -150,7 +165,7 @@ func cargoAuditVulnSeverity(advisory cargoAuditAdvisory) Severity {
 
 	score, err := cvssBaseScore(*advisory.CVSS)
 	if err != nil {
-		return SeverityHigh
+		return SeverityCritical
 	}
 	return FromCVSS(score)
 }

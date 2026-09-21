@@ -215,3 +215,23 @@ func TestRun_GitleaksAdapter(t *testing.T) {
 		}
 	})
 }
+
+// TestGitleaksNormalizer_NullReportRejected covers a report body of the bare
+// JSON literal "null", which unmarshals into a nil slice without error and
+// would otherwise be silently treated as a clean scan (zero findings). A
+// clean gitleaks scan always writes "[]", never "null", so this is rejected
+// like an empty file.
+func TestGitleaksNormalizer_NullReportRejected(t *testing.T) {
+	_, _, err := gitleaksNormalizer{}.Normalize(stringsReader("null"))
+	if err == nil {
+		t.Error("Normalize() expected error for JSON null report, got nil")
+	}
+}
+
+func TestGitleaksNormalizer_DuplicateCaseVariantKeyRejected(t *testing.T) {
+	input := `[{"RuleID":"a","ruleid":"b","File":"f","StartLine":1}]`
+	_, _, err := gitleaksNormalizer{}.Normalize(stringsReader(input))
+	if err == nil {
+		t.Error("Normalize() expected error for case-variant duplicate key in a finding element, got nil")
+	}
+}

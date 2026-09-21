@@ -199,6 +199,86 @@ func TestRunEvaluate(t *testing.T) {
 		}
 	})
 
+	t.Run("target-ref matching all attestations allows", func(t *testing.T) {
+		dir := t.TempDir()
+		kp, _ := crypto.GenerateKeyPair()
+		chain := buildSignedChain(t, kp, []types.SecurityCheckType{
+			types.CheckSAST, types.CheckSCA, types.CheckConfig, types.CheckSecret,
+		}, nil)
+		chainPath := saveChain(t, dir, chain)
+		pubHex := hex.EncodeToString([]byte(kp.PublicKey))
+
+		err := runEvaluate(ctx, evaluateFlags{
+			chain:        chainPath,
+			verifySigner: pubHex,
+			targetRef:    "abc123",
+		})
+		if err != nil {
+			t.Fatalf("runEvaluate() unexpected error = %v", err)
+		}
+	})
+
+	t.Run("target-ref mismatch calls osExit(1) before policy evaluation", func(t *testing.T) {
+		dir := t.TempDir()
+		kp, _ := crypto.GenerateKeyPair()
+		chain := buildSignedChain(t, kp, []types.SecurityCheckType{
+			types.CheckSAST, types.CheckSCA, types.CheckConfig, types.CheckSecret,
+		}, nil)
+		chainPath := saveChain(t, dir, chain)
+		pubHex := hex.EncodeToString([]byte(kp.PublicKey))
+
+		code := withMockExit(func() {
+			runEvaluate(ctx, evaluateFlags{ //nolint
+				chain:        chainPath,
+				verifySigner: pubHex,
+				targetRef:    "some-other-commit",
+			})
+		})
+		if code != 1 {
+			t.Errorf("expected exit code 1 for target-ref mismatch, got %d", code)
+		}
+	})
+
+	t.Run("subject matching all attestations allows", func(t *testing.T) {
+		dir := t.TempDir()
+		kp, _ := crypto.GenerateKeyPair()
+		chain := buildSignedChain(t, kp, []types.SecurityCheckType{
+			types.CheckSAST, types.CheckSCA, types.CheckConfig, types.CheckSecret,
+		}, nil)
+		chainPath := saveChain(t, dir, chain)
+		pubHex := hex.EncodeToString([]byte(kp.PublicKey))
+
+		err := runEvaluate(ctx, evaluateFlags{
+			chain:        chainPath,
+			verifySigner: pubHex,
+			subject:      chain[0].Subject.Name,
+		})
+		if err != nil {
+			t.Fatalf("runEvaluate() unexpected error = %v", err)
+		}
+	})
+
+	t.Run("subject mismatch calls osExit(1) before policy evaluation", func(t *testing.T) {
+		dir := t.TempDir()
+		kp, _ := crypto.GenerateKeyPair()
+		chain := buildSignedChain(t, kp, []types.SecurityCheckType{
+			types.CheckSAST, types.CheckSCA, types.CheckConfig, types.CheckSecret,
+		}, nil)
+		chainPath := saveChain(t, dir, chain)
+		pubHex := hex.EncodeToString([]byte(kp.PublicKey))
+
+		code := withMockExit(func() {
+			runEvaluate(ctx, evaluateFlags{ //nolint
+				chain:        chainPath,
+				verifySigner: pubHex,
+				subject:      "some-other-app",
+			})
+		})
+		if code != 1 {
+			t.Errorf("expected exit code 1 for subject mismatch, got %d", code)
+		}
+	})
+
 	t.Run("chain load error returns error", func(t *testing.T) {
 		dir := t.TempDir()
 		kp, _ := crypto.GenerateKeyPair()
@@ -1177,8 +1257,8 @@ func TestLoadPolicyConfigRejectsMalformedDataFile(t *testing.T) {
 func TestBuildEffectiveConfig(t *testing.T) {
 	t.Run("nil overrides produce the bundled policy's defaults", func(t *testing.T) {
 		cfg := buildEffectiveConfig(nil)
-		if cfg["fail_on_severity"] != "critical" {
-			t.Errorf("fail_on_severity = %v, want critical", cfg["fail_on_severity"])
+		if cfg["fail_on_severity"] != "high" {
+			t.Errorf("fail_on_severity = %v, want high", cfg["fail_on_severity"])
 		}
 		required, ok := cfg["required_checks"].([]string)
 		if !ok || len(required) != 4 {
@@ -1262,7 +1342,7 @@ func TestRunConfigHash(t *testing.T) {
 	t.Run("overrides change the printed hash", func(t *testing.T) {
 		var buf strings.Builder
 		if err := captureStdout(&buf, func() error {
-			return runConfigHash(configHashFlags{failOnSeverity: "high"})
+			return runConfigHash(configHashFlags{failOnSeverity: "critical"})
 		}); err != nil {
 			t.Fatalf("runConfigHash() error = %v", err)
 		}

@@ -207,3 +207,11 @@ func TestRun_TrivyAdapter(t *testing.T) {
 		}
 	})
 }
+
+func TestTrivyNormalizer_DuplicateCaseVariantKeyRejected(t *testing.T) {
+	input := `{"SchemaVersion":2,"Results":[],"results":[{"Target":"x"}]}`
+	_, _, err := trivyNormalizer{}.Normalize(stringsReader(input))
+	if err == nil {
+		t.Error("Normalize() expected error for case-variant duplicate top-level key, got nil")
+	}
+}

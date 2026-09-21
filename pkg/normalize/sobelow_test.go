@@ -213,3 +213,11 @@ func TestRun_SobelowAdapter(t *testing.T) {
 		}
 	})
 }
+
+func TestSobelowNormalizer_DuplicateCaseVariantKeyRejected(t *testing.T) {
+	input := `{"sobelow_version":"0.13.0","Sobelow_version":"0.13.0","total_findings":0,"findings":{"high_confidence":[],"medium_confidence":[],"low_confidence":[]}}`
+	_, _, err := sobelowNormalizer{}.Normalize(stringsReader(input))
+	if err == nil {
+		t.Error("Normalize() expected error for case-variant duplicate top-level key, got nil")
+	}
+}

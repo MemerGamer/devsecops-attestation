@@ -159,7 +159,11 @@ func TestCargoAuditNormalizer_Normalize(t *testing.T) {
 		}
 	})
 
-	t.Run("unparseable cvss vector falls back to high severity", func(t *testing.T) {
+	t.Run("unparseable cvss vector fails closed to critical severity", func(t *testing.T) {
+		// The tool did supply a CVSS vector, just one this adapter's parser
+		// cannot interpret (including CVSS 4.0 vectors), so it must not be
+		// silently treated the same as "no score at all" (high): fail
+		// closed to critical instead.
 		input := `{
 			"database": {"advisory-count": 1},
 			"lockfile": {"dependency-count": 1},
@@ -175,8 +179,29 @@ func TestCargoAuditNormalizer_Normalize(t *testing.T) {
 		if len(findings) != 1 {
 			t.Fatalf("len(findings) = %d, want 1", len(findings))
 		}
-		if string(findings[0].Severity) != "high" {
-			t.Errorf("severity = %q, want high", findings[0].Severity)
+		if string(findings[0].Severity) != "critical" {
+			t.Errorf("severity = %q, want critical", findings[0].Severity)
+		}
+	})
+
+	t.Run("CVSS 4.0 vector (unsupported by this adapter's parser) fails closed to critical severity", func(t *testing.T) {
+		input := `{
+			"database": {"advisory-count": 1},
+			"lockfile": {"dependency-count": 1},
+			"vulnerabilities": {"found": true, "count": 1, "list": [
+				{"advisory": {"id": "A-1", "title": "t", "cvss": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"}, "package": {"name": "a", "version": "1.0.0"}}
+			]},
+			"warnings": {"unmaintained": [], "yanked": [], "unsound": []}
+		}`
+		findings, _, err := cargoAuditNormalizer{}.Normalize(stringsReader(input))
+		if err != nil {
+			t.Fatalf("Normalize() error = %v", err)
+		}
+		if len(findings) != 1 {
+			t.Fatalf("len(findings) = %d, want 1", len(findings))
+		}
+		if string(findings[0].Severity) != "critical" {
+			t.Errorf("severity = %q, want critical", findings[0].Severity)
 		}
 	})
 
@@ -274,4 +299,12 @@ func TestRun_CargoAuditAdapter(t *testing.T) {
 			t.Error("result.Passed = false, want true (no findings)")
 		}
 	})
+}
+
+func TestCargoAuditNormalizer_DuplicateCaseVariantKeyRejected(t *testing.T) {
+	input := `{"database":{},"Database":{},"lockfile":{"dependency-count":1},"vulnerabilities":{"found":false,"count":0,"list":[]},"warnings":{"unmaintained":[],"yanked":[],"unsound":[]}}`
+	_, _, err := cargoAuditNormalizer{}.Normalize(stringsReader(input))
+	if err == nil {
+		t.Error("Normalize() expected error for case-variant duplicate top-level key, got nil")
+	}
 }

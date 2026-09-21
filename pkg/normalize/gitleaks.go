@@ -74,6 +74,25 @@ func (gitleaksNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error) {
 		return nil, 0, fmt.Errorf("gitleaks report is empty, cannot distinguish a clean scan from a crashed or incomplete one")
 	}
 
+	// The JSON literal "null" unmarshals into a nil []gitleaksFinding without
+	// error, which would otherwise be silently treated as zero findings (a
+	// clean scan). Like an empty file, this is not a report gitleaks itself
+	// produces for a clean run (that is always "[]"), so it is rejected
+	// rather than accepted as a fail-open pass.
+	if bytes.Equal(trimmed, []byte("null")) {
+		return nil, 0, fmt.Errorf("gitleaks report is JSON null, not a recognized gitleaks report")
+	}
+
+	var rawElements []json.RawMessage
+	if err := json.Unmarshal(trimmed, &rawElements); err != nil {
+		return nil, 0, fmt.Errorf("parsing gitleaks report: %w", err)
+	}
+	for i, el := range rawElements {
+		if err := RejectCaseVariantDuplicateKeys(el); err != nil {
+			return nil, 0, fmt.Errorf("gitleaks report element %d: %w", i, err)
+		}
+	}
+
 	var raw []gitleaksFinding
 	if err := json.Unmarshal(trimmed, &raw); err != nil {
 		return nil, 0, fmt.Errorf("parsing gitleaks report: %w", err)

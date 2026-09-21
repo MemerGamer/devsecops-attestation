@@ -50,6 +50,10 @@ func (sobelowNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error) {
 		return nil, 0, fmt.Errorf("reading sobelow report: %w", err)
 	}
 
+	if err := RejectCaseVariantDuplicateKeys(data); err != nil {
+		return nil, 0, fmt.Errorf("sobelow report: %w", err)
+	}
+
 	var report sobelowReport
 	if err := json.Unmarshal(data, &report); err != nil {
 		return nil, 0, fmt.Errorf("parsing sobelow report: %w", err)

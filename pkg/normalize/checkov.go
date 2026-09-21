@@ -81,11 +81,35 @@ func (checkovNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error) {
 
 	trimmed := skipLeadingSpace(data)
 	if len(trimmed) > 0 && trimmed[0] == '[' {
-		var reports []checkovFrameworkReport
-		if err := json.Unmarshal(data, &reports); err != nil {
+		var rawReports []json.RawMessage
+		if err := json.Unmarshal(data, &rawReports); err != nil {
 			return nil, 0, fmt.Errorf("parsing checkov multi-framework report: %w", err)
 		}
+		// An empty array means no framework reported anything at all, which
+		// is ambiguous: it could mean checkov genuinely found nothing to
+		// scan, or that report generation was cut short before any
+		// framework's object was written. Fail closed rather than silently
+		// normalizing to a clean run with zero findings.
+		if len(rawReports) == 0 {
+			return nil, 0, fmt.Errorf("checkov multi-framework report is an empty array, ambiguous report, rejected")
+		}
+
+		reports := make([]checkovFrameworkReport, 0, len(rawReports))
+		for i, rr := range rawReports {
+			if err := RejectCaseVariantDuplicateKeys(rr); err != nil {
+				return nil, 0, fmt.Errorf("checkov multi-framework report element %d: %w", i, err)
+			}
+			var report checkovFrameworkReport
+			if err := json.Unmarshal(rr, &report); err != nil {
+				return nil, 0, fmt.Errorf("parsing checkov multi-framework report element %d: %w", i, err)
+			}
+			reports = append(reports, report)
+		}
 		return checkovCollect(reports)
+	}
+
+	if err := RejectCaseVariantDuplicateKeys(data); err != nil {
+		return nil, 0, fmt.Errorf("checkov report: %w", err)
 	}
 
 	var raw map[string]json.RawMessage
@@ -93,7 +117,11 @@ func (checkovNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error) {
 		return nil, 0, fmt.Errorf("parsing checkov report: %w", err)
 	}
 
-	if _, hasResults := raw["results"]; !hasResults {
+	if resultsRaw, hasResults := raw["results"]; hasResults {
+		if err := RejectCaseVariantDuplicateKeys(resultsRaw); err != nil {
+			return nil, 0, fmt.Errorf("checkov report %q object: %w", "results", err)
+		}
+	} else {
 		// The bare empty-scan summary object is only distinguished from an
 		// arbitrary JSON object without a "results" key by carrying
 		// checkov-specific fields. Require at least one of them so an
@@ -109,12 +137,21 @@ func (checkovNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error) {
 		if err := json.Unmarshal(data, &empty); err != nil {
 			return nil, 0, fmt.Errorf("parsing checkov empty-scan report: %w", err)
 		}
+		// A bare summary object that claims failed checks or a non-zero
+		// resource count is internally inconsistent: those counts can only
+		// come from a scan that examined resources, which should also carry
+		// a "results" object listing what failed. Treat this as an
+		// ambiguous, possibly truncated report rather than silently
+		// yielding zero findings for a run that may have found real issues.
+		if empty.Failed > 0 || empty.ResourceCount > 0 {
+			return nil, 0, fmt.Errorf("checkov bare summary reports failed=%d resource_count=%d but has no %q field, ambiguous report, rejected", empty.Failed, empty.ResourceCount, "results")
+		}
 		if empty.ParsingErrors > 0 && !checkovParsingErrorsIgnorable(checkovSummary{
 			Passed:        empty.Passed,
 			Failed:        empty.Failed,
 			ParsingErrors: empty.ParsingErrors,
 			ResourceCount: empty.ResourceCount,
-		}) {
+		}, nil) {
 			return nil, 0, fmt.Errorf("checkov report has %d parsing error(s), scan incomplete", empty.ParsingErrors)
 		}
 		return []types.Finding{}, empty.Passed, nil
@@ -132,7 +169,7 @@ func checkovCollect(reports []checkovFrameworkReport) ([]types.Finding, int, err
 	passedCount := 0
 
 	for _, report := range reports {
-		if report.Summary.ParsingErrors > 0 && !checkovParsingErrorsIgnorable(report.Summary) {
+		if report.Summary.ParsingErrors > 0 && !checkovParsingErrorsIgnorable(report.Summary, report.Results.FailedChecks) {
 			return nil, 0, fmt.Errorf("checkov report for check_type %q has %d parsing error(s), scan incomplete", report.CheckType, report.Summary.ParsingErrors)
 		}
 
@@ -167,13 +204,16 @@ func checkovCollect(reports []checkovFrameworkReport) ([]types.Finding, int, err
 // framework configured for the scan (e.g. terraform_plan) attempted to parse
 // files that do not actually belong to it (e.g. arbitrary .json files that
 // are not Terraform plans); in that case checkov records parsing_errors but
-// the framework found zero resources and reported zero passed/failed checks,
-// meaning it contributed nothing to the result either way and a parsing
-// error there cannot be hiding a real finding. A framework that scanned any
-// resources or reported any checks still fails on parsing errors, since a
-// parse failure there could be masking findings in the unparsed file.
-func checkovParsingErrorsIgnorable(s checkovSummary) bool {
-	return s.ResourceCount == 0 && s.Passed == 0 && s.Failed == 0
+// the framework found zero resources and reported zero passed/failed checks
+// and lists no failed_checks entries, meaning it contributed nothing to the
+// result either way and a parsing error there cannot be hiding a real
+// finding. A framework that scanned any resources, reported any checks, or
+// lists a failed_checks entry (even if the summary count disagrees) still
+// fails on parsing errors, since a parse failure there could be masking
+// findings in the unparsed file. failedChecks may be nil for the bare
+// empty-scan report shape, which carries no results object at all.
+func checkovParsingErrorsIgnorable(s checkovSummary, failedChecks []checkovFailedCheck) bool {
+	return s.ResourceCount == 0 && s.Passed == 0 && s.Failed == 0 && len(failedChecks) == 0
 }
 
 // checkovSeverity maps a checkov failed check's severity field to the

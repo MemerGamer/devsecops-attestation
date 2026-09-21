@@ -94,7 +94,7 @@ func registerSignFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&flags.checkType, "check-type", "", "check type, e.g. sast, sca, config, secret, or a custom lowercase identifier (required unless --tool-format supplies a default)")
 	cmd.Flags().StringVar(&flags.tool, "tool", "", "tool name, e.g. semgrep (required unless --tool-format supplies a default)")
 	cmd.Flags().StringVar(&flags.toolFormat, "tool-format", "", "normalize adapter name; when set, --result is treated as raw tool output and normalized inline before signing")
-	cmd.Flags().StringVar(&flags.failOn, "fail-on", "critical", "minimum severity (inclusive) that fails inline normalization, used only with --tool-format; passed means no finding at or above this threshold, and this should match the gate's --fail-on-severity")
+	cmd.Flags().StringVar(&flags.failOn, "fail-on", "high", "minimum severity (inclusive) that fails inline normalization, used only with --tool-format; passed means no finding at or above this threshold, and this should match the gate's --fail-on-severity")
 	cmd.Flags().StringVar(&flags.toolVersion, "tool-version", "unknown", "tool version")
 	cmd.Flags().StringVar(&flags.resultFile, "result", "", "path to JSON scan result file (required)")
 	cmd.Flags().StringVar(&flags.targetRef, "target-ref", "", "git SHA or artifact digest (required)")
@@ -378,7 +378,7 @@ func init() {
 	normalizeCmd.Flags().StringVar(&normalizeFlagsVar.tool, "tool", "", "normalize adapter name, e.g. semgrep (required)")
 	normalizeCmd.Flags().StringVar(&normalizeFlagsVar.in, "in", "", "path to raw tool report, or - to read from stdin (required)")
 	normalizeCmd.Flags().StringVar(&normalizeFlagsVar.out, "out", "", "write canonical JSON to this path instead of stdout")
-	normalizeCmd.Flags().StringVar(&normalizeFlagsVar.failOn, "fail-on", "critical", "minimum severity (inclusive) that fails the run; passed means no finding at or above this threshold, and this should match the gate's --fail-on-severity")
+	normalizeCmd.Flags().StringVar(&normalizeFlagsVar.failOn, "fail-on", "high", "minimum severity (inclusive) that fails the run; passed means no finding at or above this threshold, and this should match the gate's --fail-on-severity")
 
 	normalizeCmd.MarkFlagRequired("tool")
 	normalizeCmd.MarkFlagRequired("in")
