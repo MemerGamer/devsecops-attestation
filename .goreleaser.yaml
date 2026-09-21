@@ -1,0 +1,197 @@
+# GoReleaser configuration for devsecops-attestation.
+#
+# Produces per-OS/arch archives bundling all four CLI binaries (keygen,
+# attest, verify, gate) plus LICENSE, README.md, and the canonical policy,
+# a sha256 checksums file, SBOMs, a signed OCI image, and cosign/attest-
+# build-provenance signatures. Release notes and the GitHub release itself
+# are owned by release-please; goreleaser publishes into the release that
+# release-please already created for the pushed tag.
+#
+# Run `goreleaser check` to validate this file, and
+# `goreleaser release --snapshot --clean --skip=publish,sign,sbom` for a
+# local dry run that does not require registry or signing credentials.
+version: 2
+
+project_name: devsecops-attestation
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: keygen
+    main: ./cmd/keygen
+    binary: keygen
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: attest
+    main: ./cmd/sign
+    binary: attest
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: verify
+    main: ./cmd/verify
+    binary: verify
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: gate
+    main: ./cmd/gate
+    binary: gate
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    ids:
+      - keygen
+      - attest
+      - verify
+      - gate
+    name_template: "devsecops-attestation_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+      - README.md
+      - src: policies/deploy.rego
+        dst: policies/deploy.rego
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+sboms:
+  - id: archives
+    artifacts: archive
+
+signs:
+  - id: checksums
+    cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+dockers_v2:
+  - id: devsecops-attestation
+    dockerfile: Dockerfile.goreleaser
+    images:
+      - "{{ .Env.REGISTRY }}/memergamer/devsecops-attestation"
+    tags:
+      - "{{ .Version }}"
+      - "{{ .Major }}.{{ .Minor }}"
+      - "{{ .Major }}"
+      - "latest"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    ids:
+      - keygen
+      - attest
+      - verify
+      - gate
+    extra_files:
+      - policies/deploy.rego
+    build_args:
+      VERSION: "{{ .Version }}"
+    labels:
+      org.opencontainers.image.source: "https://github.com/MemerGamer/devsecops-attestation"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.licenses: "MIT"
+
+docker_signs:
+  - id: images
+    cmd: cosign
+    # artifacts is intentionally left unset: with no value docker_signs
+    # signs the DockerImageV2 artifacts that dockers_v2 produces (the
+    # legacy "images" value only matches the old dockers pipe's artifact
+    # types and never matches anything here).
+    args:
+      - "sign"
+      - "--yes"
+      - "${artifact}@${digest}"
+    output: true
+
+release:
+  github:
+    owner: MemerGamer
+    name: devsecops-attestation
+  mode: keep-existing
+  # release-please already created the GitHub release for this tag with its
+  # own generated notes; goreleaser only uploads build artifacts to it.
+  disable: false
+
+changelog:
+  # release-please owns the changelog; goreleaser must not generate one.
+  disable: true
