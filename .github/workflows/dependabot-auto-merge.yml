@@ -9,11 +9,15 @@ permissions:
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    # Auto-merge only makes sense on github.com (dependabot PRs and gh CLI
+    # auth both assume the GitHub-hosted API); a Forgejo mirror of this repo
+    # does not run dependabot, so this job would otherwise be a permanent
+    # no-op there rather than a guarded skip.
+    if: github.server_url == 'https://github.com' && github.actor == 'dependabot[bot]'
     steps:
       - name: Fetch dependabot metadata
         id: meta
-        uses: dependabot/fetch-metadata@v3
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
