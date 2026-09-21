@@ -1,0 +1,37 @@
+# Dockerfile.goreleaser - runtime-only image used by GoReleaser's dockers_v2
+# pipeline. GoReleaser has already cross-compiled the four CLI binaries; this
+# stage only assembles the final distroless runtime image around them. It
+# does not run `go build` -- see Dockerfile for the full source build used by
+# `docker build` / `make docker`.
+#
+# The build context GoReleaser assembles for this Dockerfile contains the
+# per-platform binaries at the repository root (keygen, attest, verify, gate)
+# plus the repository's policies/ directory, per the `dockers_v2.ids` and
+# archive files configured in .goreleaser.yaml.
+
+# gcr.io/distroless/static-debian12:nonroot, resolved 2026-09-21 via
+# `docker pull gcr.io/distroless/static-debian12:nonroot` followed by
+# `docker inspect --format='{{index .RepoDigests 0}}'`. Keep in sync with
+# the runtime stage digest in Dockerfile.
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+
+ARG VERSION=dev
+
+LABEL org.opencontainers.image.source="https://github.com/MemerGamer/devsecops-attestation" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.title="devsecops-attestation" \
+      org.opencontainers.image.description="Cryptographically verifiable security decisions for CI/CD-based DevSecOps pipelines (keygen, attest, verify, gate)."
+
+COPY keygen /usr/local/bin/keygen
+COPY attest /usr/local/bin/attest
+COPY verify /usr/local/bin/verify
+COPY gate /usr/local/bin/gate
+COPY policies/deploy.rego /policies/deploy.rego
+
+WORKDIR /work
+
+USER nonroot
+
+ENTRYPOINT []
+CMD ["attest", "tools"]
