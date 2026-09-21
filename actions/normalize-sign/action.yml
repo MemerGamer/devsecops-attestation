@@ -45,9 +45,13 @@ inputs:
     default: unknown
   fail-on:
     description: >-
-      Minimum severity (inclusive) recorded as failing normalization. Purely
-      informational at this stage; the deploy gate is the actual policy
-      decision point. Should match the gate action's fail-on-severity.
+      Minimum severity (inclusive) that marks this result as failing at
+      normalize/sign time, recorded in the signed attestation's
+      result.passed field. This is not merely informational: the bundled
+      policy's failed-checks rule denies deployment for any attestation
+      with passed=false, so this threshold participates directly in the
+      deploy gate's blocking decision. Must match the gate action's
+      fail-on-severity to avoid the two disagreeing on the same findings.
     required: false
     default: high
   signer-id:
