@@ -82,6 +82,8 @@ jobs:
     env:
       GITLEAKS_VERSION: '8.21.2'
       TRIVY_VERSION: '0.74.0'
+      SEMGREP_VERSION: '1.177.0'
+      CHECKOV_VERSION: '3.3.19'
     outputs:
       chain-artifact: ${{ steps.upload-chain.outputs.artifact-id }}
 
@@ -115,27 +117,33 @@ jobs:
       - name: Run SAST (semgrep)
         id: sast
         run: |
-          pip install --quiet semgrep
-          semgrep scan --json --output semgrep-raw.json --no-error-on-empty-scan .
-          jq '{
-            passed: ((.results // []) | length) == 0,
-            findings: [(.results // [])[] | {
-              id: .check_id,
-              severity: (.extra.severity | if . == "ERROR" then "critical"
-                                           elif . == "WARNING" then "high"
-                                           else "medium" end),
-              title: .extra.message,
-              location: (.path + ":" + (.start.line | tostring))
-            }]
-          }' semgrep-raw.json > sast-results.json
+          set -euo pipefail
+          pip install --quiet "semgrep==${SEMGREP_VERSION}"
+          rm -f semgrep-raw.json
+          # semgrep scan --json exits 0 both when it finds nothing AND when
+          # it finds something, as long as --error is not passed (which
+          # this invocation deliberately omits: the pass/fail decision
+          # belongs to the gate, not this step, so findings must not fail
+          # the job). A nonzero exit here is therefore always a genuine
+          # scan failure, never "findings", so it is left to propagate.
+          # --disable-nosem: report findings a `# nosemgrep` comment would
+          # otherwise silently suppress in the raw scan output, so a
+          # suppression comment cannot be used to hide a real finding from
+          # the signed attestation. --metrics=off is deliberately not
+          # passed: semgrep 1.177.0 refuses to resolve --config auto with
+          # metrics disabled ("Cannot create auto config when metrics are
+          # off"), confirmed by running this exact command locally; #37's
+          # workflow (feat/composite-actions) omits it for the same reason.
+          semgrep scan --config auto --disable-nosem --json --output semgrep-raw.json .
+          jq -e . semgrep-raw.json >/dev/null
+          test -s semgrep-raw.json
 
       - name: Sign SAST attestation
         run: |
           ./bin/attest sign \
-            --check-type sast \
-            --tool semgrep \
+            --tool-format semgrep \
             --tool-version "$(semgrep --version 2>/dev/null || echo unknown)" \
-            --result sast-results.json \
+            --result semgrep-raw.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
             --signing-key "${{ secrets.SAST_SIGNING_KEY }}" \
@@ -159,26 +167,22 @@ jobs:
       - name: Run SCA (trivy)
         id: sca
         run: |
+          set -euo pipefail
+          rm -f trivy-raw.json
+          # --exit-code 0 makes trivy always exit 0 for a completed scan,
+          # findings or not (the gate makes the pass/fail decision, not
+          # this step); a nonzero exit is a genuine scan failure and is
+          # left to propagate.
           trivy fs --format json --output trivy-raw.json --scanners vuln --exit-code 0 .
-          jq '{
-            passed: (([(.Results // [])[]? | (.Vulnerabilities // [])[]
-                       | select(.Severity == "CRITICAL" or .Severity == "HIGH")]
-                      | length) == 0),
-            findings: [(.Results // [])[]? | (.Vulnerabilities // [])[] | {
-              id: .VulnerabilityID,
-              severity: (.Severity | ascii_downcase),
-              title: (.Title // .VulnerabilityID),
-              location: .PkgName
-            }]
-          }' trivy-raw.json > sca-results.json
+          jq -e . trivy-raw.json >/dev/null
+          test -s trivy-raw.json
 
       - name: Sign SCA attestation
         run: |
           ./bin/attest sign \
-            --check-type sca \
-            --tool trivy \
+            --tool-format trivy \
             --tool-version "$(trivy --version 2>/dev/null | head -1 || echo unknown)" \
-            --result sca-results.json \
+            --result trivy-raw.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
             --signing-key "${{ secrets.SCA_SIGNING_KEY }}" \
@@ -190,29 +194,25 @@ jobs:
       - name: Run config check (checkov)
         id: config
         run: |
-          pip install --quiet checkov
-          # --soft-fail keeps the exit code 0 when checkov finds failed
-          # checks (the gate makes the pass/fail decision, not this step);
-          # a genuine crash still exits nonzero and is left to propagate.
-          checkov -d . --output json --output-file-path . --quiet --soft-fail
-          mv results.json checkov-raw.json
-          jq '{
-            passed: ((.results.failed_checks // []) | length) == 0,
-            findings: [(.results.failed_checks // [])[] | {
-              id: .check_id,
-              severity: "medium",
-              title: (.check_id + ": " + (.check_type // "config")),
-              location: (.file_path // "unknown")
-            }]
-          }' checkov-raw.json > config-results.json
+          set -euo pipefail
+          pip install --quiet "checkov==${CHECKOV_VERSION}"
+          rm -rf checkov-out checkov-raw.json
+          # --soft-fail makes checkov exit 0 on failed checks (the gate
+          # makes the pass/fail decision, not this step); a crash (no
+          # results_json.json produced) is caught below by `mv` failing.
+          # checkov 3.x writes <output-file-path>/results_json.json, not
+          # results.json, when --output-file-path names a directory.
+          checkov -d . --output json --output-file-path checkov-out --quiet --soft-fail --skip-path pkg/normalize/testdata
+          mv checkov-out/results_json.json checkov-raw.json
+          jq -e . checkov-raw.json >/dev/null
+          test -s checkov-raw.json
 
       - name: Sign config attestation
         run: |
           ./bin/attest sign \
-            --check-type config \
-            --tool checkov \
+            --tool-format checkov \
             --tool-version "$(checkov --version 2>/dev/null || echo unknown)" \
-            --result config-results.json \
+            --result checkov-raw.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
             --signing-key "${{ secrets.CONFIG_SIGNING_KEY }}" \
@@ -236,28 +236,24 @@ jobs:
       - name: Run secret scan (gitleaks)
         id: secrets
         run: |
-          # --exit-code 0 keeps the exit code 0 when leaks are found (the
-          # gate makes the pass/fail decision, not this step); a genuine
-          # scan failure still exits nonzero and is left to propagate.
+          set -euo pipefail
+          rm -f gitleaks-raw.json
+          # --exit-code 0 makes gitleaks always exit 0, leaks found or not
+          # (the gate makes the pass/fail decision, not this step); a
+          # nonzero exit is a genuine scan failure and is left to
+          # propagate. The jq check below is a second line of defense in
+          # case a future gitleaks version stops honoring --exit-code for
+          # some failure mode.
           gitleaks detect --report-format json --report-path gitleaks-raw.json --exit-code 0
-          jq 'if . == null then {} else . end
-              | {
-                  passed: (length == 0),
-                  findings: [.[] | {
-                    id: .RuleID,
-                    severity: "high",
-                    title: .Description,
-                    location: (.File + ":" + (.StartLine | tostring))
-                  }]
-                }' gitleaks-raw.json > secret-results.json
+          jq -e . gitleaks-raw.json >/dev/null
+          test -s gitleaks-raw.json
 
       - name: Sign secret scan attestation
         run: |
           ./bin/attest sign \
-            --check-type secret \
-            --tool gitleaks \
+            --tool-format gitleaks \
             --tool-version "$(gitleaks version 2>/dev/null || echo unknown)" \
-            --result secret-results.json \
+            --result gitleaks-raw.json \
             --target-ref "$ARTIFACT_REF" \
             --subject "$APP_NAME" \
             --signing-key "${{ secrets.SECRET_SCANNING_SIGNING_KEY }}" \
