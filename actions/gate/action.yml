@@ -53,6 +53,13 @@ inputs:
     description: Comma-separated check types with zero finding tolerance, e.g. secret.
     required: false
     default: ""
+  target-ref:
+    description: >-
+      Commit or artifact digest that every attestation's result.target_ref
+      must equal (commit binding), passed as --target-ref. Defaults to
+      ${{ github.sha }}. Set to an empty string to disable the check.
+    required: false
+    default: ${{ github.sha }}
   max-age:
     description: Maximum allowed attestation age, e.g. 24h. Empty means no limit.
     required: false
@@ -99,6 +106,7 @@ runs:
         INPUT_REQUIRED_CHECKS: ${{ inputs.required-checks }}
         INPUT_FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
         INPUT_ZERO_TOLERANCE_CHECKS: ${{ inputs.zero-tolerance-checks }}
+        INPUT_TARGET_REF: ${{ inputs.target-ref }}
         INPUT_MAX_AGE: ${{ inputs.max-age }}
         INPUT_REQUIRE_LOG_ENTRIES: ${{ inputs.require-log-entries }}
         INPUT_OUTPUT: ${{ inputs.output }}

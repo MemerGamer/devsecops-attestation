@@ -106,6 +106,9 @@ fi
 if [ -n "${INPUT_ZERO_TOLERANCE_CHECKS:-}" ]; then
 	evaluate_args+=(--zero-tolerance-checks "${INPUT_ZERO_TOLERANCE_CHECKS}")
 fi
+if [ -n "${INPUT_TARGET_REF:-}" ]; then
+	evaluate_args+=(--target-ref "${INPUT_TARGET_REF}")
+fi
 if [ "${INPUT_REQUIRE_LOG_ENTRIES}" = "true" ]; then
 	evaluate_args+=(--require-log-entries)
 fi

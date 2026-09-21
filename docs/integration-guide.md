@@ -80,7 +80,9 @@ optionally verifies the checksums file's cosign signature:
 - uses: MemerGamer/devsecops-attestation/actions/setup@v0.4.0
   with:
     version: "1.2.3"
-    verify-signature: "true"   # requires cosign on PATH
+    # verify-signature defaults to "true" and requires cosign on PATH (add
+    # sigstore/cosign-installer before this step); set to "false" explicitly
+    # to skip signature verification, e.g. for local/demo runs.
 ```
 
 This project does not publish a floating major tag (e.g. `@v1`) that moves
@@ -247,9 +249,9 @@ for why the two hashes are separate trust boundaries.
 
 ## Threshold Alignment
 
-`attest`'s `--fail-on` (default `critical`) decides the `passed` field baked
+`attest`'s `--fail-on` (default `high`) decides the `passed` field baked
 into each signed attestation. The gate's `--fail-on-severity` (also default
-`critical`) is evaluated independently against the raw findings, but the
+`high`) is evaluated independently against the raw findings, but the
 gate's "failed checks" deny reason also fires whenever any attestation
 carries `passed == false`. Keep the two thresholds equal, or a finding can
 fail one check without tripping the other. See

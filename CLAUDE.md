@@ -192,7 +192,7 @@ as the MSc contribution. FROST and network gossip are PhD territory.
 - `--config-hash` pins the resolved `data.config` (the policy's parameters), a separate trust
   boundary from `--policy-hash` (the policy's logic). `--config-hash` is required whenever
   `--policy-hash` is set and the effective configuration is not the bundled defaults.
-- `attest sign --fail-on` and `attest normalize --fail-on` default to `critical`, matching the
+- `attest sign --fail-on` and `attest normalize --fail-on` default to `high`, matching the
   gate's default `--fail-on-severity`, so the signer-side pass determination and the gate-side
   blocking decision agree unless an operator deliberately sets them apart.
 - The composite actions under `actions/` are bash-only (`shell: bash`, no Node.js runtime), so

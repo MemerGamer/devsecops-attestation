@@ -35,12 +35,15 @@ inputs:
     default: ${{ runner.temp }}/devsecops-attestation/bin
   verify-signature:
     description: >-
-      When "true", verify checksums.txt against its cosign sign-blob
-      Sigstore bundle (checksums.txt.sigstore.json) before trusting it;
-      requires cosign on PATH and fails the step if cosign is not found
-      (never silently skips the check).
+      When "true" (the default), verify checksums.txt against its cosign
+      sign-blob Sigstore bundle (checksums.txt.sigstore.json), pinned to the
+      release-please workflow's exact signer identity, before trusting it;
+      requires cosign on PATH and fails the step with guidance if cosign is
+      not found (never silently skips the check). Set to "false" explicitly
+      to skip verification (e.g. for local/demo runs with a fake release, or
+      when version is "source").
     required: false
-    default: "false"
+    default: "true"
 
 outputs:
   bin-dir:

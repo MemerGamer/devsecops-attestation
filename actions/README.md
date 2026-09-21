@@ -50,7 +50,7 @@ instead of living inline in YAML.
 | `repository` | no | `MemerGamer/devsecops-attestation` | `owner/repo`, used for the cosign certificate-identity check. |
 | `download-base-url` | no | `${{ github.server_url }}/MemerGamer/devsecops-attestation/releases/download` | Base URL archives are downloaded from. Override for Forgejo or a private mirror. |
 | `install-dir` | no | `${{ runner.temp }}/devsecops-attestation/bin` | Install directory, added to `PATH`. |
-| `verify-signature` | no | `false` | When `true`, verifies `checksums.txt` against its cosign `sign-blob` Sigstore bundle (`checksums.txt.sigstore.json`) before trusting it; fails the step if `cosign` is not on `PATH`. |
+| `verify-signature` | no | `true` | When `true` (the default), verifies `checksums.txt` against its cosign `sign-blob` Sigstore bundle (`checksums.txt.sigstore.json`), pinned to the release-please workflow's exact signer identity, before trusting it; fails the step with guidance if `cosign` is not on `PATH` (add `sigstore/cosign-installer`, or set this to `false` explicitly to skip verification). |
 
 | Output | Description |
 |---|---|
@@ -83,7 +83,7 @@ appends the signed attestation to the chain). Requires `attest` on `PATH`
 | `subject` | no | `${{ github.repository }}` | Artifact/application name. |
 | `target-ref` | no | `${{ github.sha }}` | Git SHA or artifact digest. |
 | `tool-version` | no | `unknown` | Underlying tool's version string. |
-| `fail-on` | no | `critical` | Informational severity threshold recorded at normalize time; the gate action's `fail-on-severity` is the actual policy decision. |
+| `fail-on` | no | `high` | Informational severity threshold recorded at normalize time; the gate action's `fail-on-severity` is the actual policy decision. |
 | `signer-id` | no | `""` | Human-readable signer identity. Omit to let `attest` derive it from `GITHUB_SERVER_URL`/`GITHUB_REPOSITORY`/`GITHUB_WORKFLOW`/`GITHUB_JOB`, which works unchanged on Forgejo. |
 | `log-entry` | no | `""` | Transparency log reference. Omit to let `attest` derive a run URL from `GITHUB_SERVER_URL`/`GITHUB_REPOSITORY`/`GITHUB_RUN_ID`. |
 
@@ -114,6 +114,7 @@ Runs `verify` then `gate evaluate` against the assembled chain, writes a
 | `required-checks` | no | `""` | Comma-separated required check types. |
 | `fail-on-severity` | no | `""` | Minimum blocking severity (`info`\|`low`\|`medium`\|`high`\|`critical`). |
 | `zero-tolerance-checks` | no | `""` | Comma-separated check types with zero finding tolerance. |
+| `target-ref` | no | `${{ github.sha }}` | Commit or artifact digest every attestation's `result.target_ref` must equal (commit binding), passed as `--target-ref`. Set to an empty string to disable the check. |
 | `max-age` | no | `24h` | Maximum allowed attestation age; empty means no limit. |
 | `require-log-entries` | no | `true` | Fail if any attestation lacks a transparency log entry. |
 | `output` | no | `gate-decision.json` | Path to write the `GateDecision` JSON report. |

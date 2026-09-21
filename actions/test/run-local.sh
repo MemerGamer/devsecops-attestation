@@ -149,6 +149,8 @@ printf 'deny-chain built with %s attestations\n' "$(jq 'length' "${DENY_CHAIN}" 
 
 run_gate() {
 	# run_gate <chain> <expect> <output>
+	# Uses target-ref "deadbeef" by default, matching the fixtures built by
+	# run_normalize_sign above (which also signs with target-ref "deadbeef").
 	local chain="$1" expect="$2" output="$3"
 	rm -f "${output}"
 	env \
@@ -162,6 +164,7 @@ run_gate() {
 		INPUT_REQUIRED_CHECKS="" \
 		INPUT_FAIL_ON_SEVERITY="" \
 		INPUT_ZERO_TOLERANCE_CHECKS="" \
+		INPUT_TARGET_REF="deadbeef" \
 		INPUT_MAX_AGE="24h" \
 		INPUT_REQUIRE_LOG_ENTRIES="true" \
 		INPUT_OUTPUT="${output}" \
@@ -223,12 +226,40 @@ env \
 	INPUT_REQUIRED_CHECKS="" \
 	INPUT_FAIL_ON_SEVERITY="" \
 	INPUT_ZERO_TOLERANCE_CHECKS="" \
+	INPUT_TARGET_REF="deadbeef" \
 	INPUT_MAX_AGE="" \
 	INPUT_REQUIRE_LOG_ENTRIES="true" \
 	INPUT_OUTPUT="${WORK_DIR}/empty-max-age-decision.json" \
 	INPUT_EXPECT="allow" \
 	bash "${ACTIONS_DIR}/gate/gate.sh" || rc=$?
 check "gate empty max-age (no limit)" 0 "${rc}"
+
+# ---------------------------------------------------------------------------
+# 7c. gate.sh commit binding: a target-ref that does not match the chain's
+#     attestations (all signed with target-ref "deadbeef" above) must fail
+#     closed with decision=error, before policy evaluation, regardless of
+#     --expect.
+# ---------------------------------------------------------------------------
+log "gate: target-ref mismatch (should FAIL, evaluation error not deny)"
+rc=0
+env \
+	INPUT_CHAIN="${ALLOW_CHAIN}" \
+	INPUT_AUTHORIZED_SIGNERS="${AUTHORIZED_SIGNERS}" \
+	INPUT_VERIFY_SIGNER="" \
+	INPUT_POLICY="" \
+	INPUT_POLICY_HASH="" \
+	INPUT_CONFIG_HASH="" \
+	INPUT_DATA="" \
+	INPUT_REQUIRED_CHECKS="" \
+	INPUT_FAIL_ON_SEVERITY="" \
+	INPUT_ZERO_TOLERANCE_CHECKS="" \
+	INPUT_TARGET_REF="some-other-commit" \
+	INPUT_MAX_AGE="24h" \
+	INPUT_REQUIRE_LOG_ENTRIES="true" \
+	INPUT_OUTPUT="${WORK_DIR}/target-ref-mismatch-decision.json" \
+	INPUT_EXPECT="any" \
+	bash "${ACTIONS_DIR}/gate/gate.sh" || rc=$?
+check "gate target-ref mismatch fails even with expect=any" 1 "${rc}"
 
 # ---------------------------------------------------------------------------
 # 8. gate.sh evaluation error case (unauthorized signer key) must fail
@@ -251,6 +282,7 @@ env \
 	INPUT_REQUIRED_CHECKS="" \
 	INPUT_FAIL_ON_SEVERITY="" \
 	INPUT_ZERO_TOLERANCE_CHECKS="" \
+	INPUT_TARGET_REF="deadbeef" \
 	INPUT_MAX_AGE="24h" \
 	INPUT_REQUIRE_LOG_ENTRIES="true" \
 	INPUT_OUTPUT="${WORK_DIR}/error-decision.json" \

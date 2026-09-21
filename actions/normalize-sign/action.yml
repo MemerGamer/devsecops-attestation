@@ -49,7 +49,7 @@ inputs:
       informational at this stage; the deploy gate is the actual policy
       decision point. Should match the gate action's fail-on-severity.
     required: false
-    default: critical
+    default: high
   signer-id:
     description: >-
       Human-readable signer identity. Optional: attest derives this from

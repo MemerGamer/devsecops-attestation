@@ -108,7 +108,11 @@ else
 	curl -fsSL -o "${work_dir}/checksums.txt" "${checksums_url}"
 
 	if [ "${INPUT_VERIFY_SIGNATURE}" = "true" ]; then
-		command -v cosign >/dev/null 2>&1 || fail "verify-signature=true but cosign is not on PATH"
+		if ! command -v cosign >/dev/null 2>&1; then
+			fail "verify-signature=true (the default) but cosign is not on PATH. Add sigstore/cosign-installer before this step, e.g.:
+  - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+Or set verify-signature: false explicitly to skip release signature verification (not recommended for production use)."
+		fi
 
 		log "verifying checksums.txt signature with cosign"
 		# goreleaser's `signs:` produces a single Sigstore bundle (the
@@ -117,15 +121,20 @@ else
 		# sigstore/cosign-installer v4.x) no longer honors
 		# --output-signature/--output-certificate for sign-blob.
 		curl -fsSL -o "${work_dir}/checksums.txt.sigstore.json" "${base_url}/checksums.txt.sigstore.json"
-		# INPUT_REPOSITORY is interpolated into a regex; escape any regex
-		# metacharacters it may contain (a repository name should never have
-		# any, but this keeps the check from silently over-matching or
-		# breaking if it does).
-		escaped_repository="$(printf '%s' "${INPUT_REPOSITORY}" | sed -e 's/[.[\*^$/]/\\&/g')"
+		# Pin the exact signer identity rather than a regexp over "any
+		# workflow in this repo": only the release-please workflow, running
+		# on the default branch, in response to a push (never a
+		# pull_request, which would let a fork or an untrusted PR forge a
+		# matching identity), is trusted to have produced the release
+		# artifacts. INPUT_REPOSITORY is interpolated into the identity
+		# string but not into a regex, so no escaping is needed here (unlike
+		# the previous --certificate-identity-regexp form).
 		cosign verify-blob \
 			--bundle "${work_dir}/checksums.txt.sigstore.json" \
-			--certificate-identity-regexp "^https://github\\.com/${escaped_repository}/\\.github/workflows/.+$" \
+			--certificate-identity "https://github.com/${INPUT_REPOSITORY}/.github/workflows/release-please.yml@refs/heads/main" \
 			--certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+			--certificate-github-workflow-trigger "push" \
+			--certificate-github-workflow-repository "${INPUT_REPOSITORY}" \
 			"${work_dir}/checksums.txt" \
 			|| fail "cosign verify-blob failed for checksums.txt"
 	fi
