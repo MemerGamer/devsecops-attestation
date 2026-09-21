@@ -109,7 +109,12 @@ func (checkovNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error) {
 		if err := json.Unmarshal(data, &empty); err != nil {
 			return nil, 0, fmt.Errorf("parsing checkov empty-scan report: %w", err)
 		}
-		if empty.ParsingErrors > 0 {
+		if empty.ParsingErrors > 0 && !checkovParsingErrorsIgnorable(checkovSummary{
+			Passed:        empty.Passed,
+			Failed:        empty.Failed,
+			ParsingErrors: empty.ParsingErrors,
+			ResourceCount: empty.ResourceCount,
+		}) {
 			return nil, 0, fmt.Errorf("checkov report has %d parsing error(s), scan incomplete", empty.ParsingErrors)
 		}
 		return []types.Finding{}, empty.Passed, nil
@@ -127,7 +132,7 @@ func checkovCollect(reports []checkovFrameworkReport) ([]types.Finding, int, err
 	passedCount := 0
 
 	for _, report := range reports {
-		if report.Summary.ParsingErrors > 0 {
+		if report.Summary.ParsingErrors > 0 && !checkovParsingErrorsIgnorable(report.Summary) {
 			return nil, 0, fmt.Errorf("checkov report for check_type %q has %d parsing error(s), scan incomplete", report.CheckType, report.Summary.ParsingErrors)
 		}
 
@@ -155,6 +160,20 @@ func checkovCollect(reports []checkovFrameworkReport) ([]types.Finding, int, err
 	}
 
 	return findings, passedCount, nil
+}
+
+// checkovParsingErrorsIgnorable reports whether a framework's parsing errors
+// can be safely ignored rather than failing the scan. This happens when a
+// framework configured for the scan (e.g. terraform_plan) attempted to parse
+// files that do not actually belong to it (e.g. arbitrary .json files that
+// are not Terraform plans); in that case checkov records parsing_errors but
+// the framework found zero resources and reported zero passed/failed checks,
+// meaning it contributed nothing to the result either way and a parsing
+// error there cannot be hiding a real finding. A framework that scanned any
+// resources or reported any checks still fails on parsing errors, since a
+// parse failure there could be masking findings in the unparsed file.
+func checkovParsingErrorsIgnorable(s checkovSummary) bool {
+	return s.ResourceCount == 0 && s.Passed == 0 && s.Failed == 0
 }
 
 // checkovSeverity maps a checkov failed check's severity field to the
