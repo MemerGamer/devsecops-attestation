@@ -135,3 +135,82 @@ func (badSeverityNormalizer) CheckType() string { return "sast" }
 func (badSeverityNormalizer) Normalize(io.Reader) ([]types.Finding, int, error) {
 	return []types.Finding{{ID: "x", Severity: types.Severity("not-a-severity")}}, 0, nil
 }
+
+func TestRejectCaseVariantDuplicateKeys(t *testing.T) {
+	t.Run("unique keys pass", func(t *testing.T) {
+		err := RejectCaseVariantDuplicateKeys([]byte(`{"results":[],"errors":[]}`))
+		if err != nil {
+			t.Errorf("unexpected error = %v, want nil", err)
+		}
+	})
+
+	t.Run("exact duplicate key", func(t *testing.T) {
+		// map[string]json.RawMessage decoding collapses two identical keys
+		// into one entry by keeping the later value, so this case is only
+		// caught by streaming the object with json.Decoder.Token instead of
+		// unmarshaling it into a map first.
+		err := RejectCaseVariantDuplicateKeys([]byte(`{"results":[1],"results":[]}`))
+		if err == nil {
+			t.Error("expected error for exact duplicate key, got nil")
+		}
+	})
+
+	t.Run("ASCII case variant", func(t *testing.T) {
+		err := RejectCaseVariantDuplicateKeys([]byte(`{"results":[],"RESULTS":[]}`))
+		if err == nil {
+			t.Error("expected error for ASCII case-variant key, got nil")
+		}
+	})
+
+	t.Run("long s Unicode fold variant", func(t *testing.T) {
+		// U+017F LATIN SMALL LETTER LONG S (ſ) folds to "s" under Unicode
+		// simple case folding, so "reſults" and "results" collide; a plain
+		// strings.ToLower comparison would miss this since ToLower leaves ſ
+		// unchanged.
+		err := RejectCaseVariantDuplicateKeys([]byte(`{"re` + "ſ" + `ults":[],"results":[]}`))
+		if err == nil {
+			t.Error("expected error for long-s Unicode fold variant key, got nil")
+		}
+	})
+
+	t.Run("Kelvin sign Unicode fold variant", func(t *testing.T) {
+		// U+212A KELVIN SIGN (K) folds to "k" under Unicode simple case
+		// folding, so "K" and "k" collide even though neither is the ASCII
+		// letter K's case pair of the other.
+		err := RejectCaseVariantDuplicateKeys([]byte(`{"` + "K" + `":[],"k":[]}`))
+		if err == nil {
+			t.Error("expected error for Kelvin-sign Unicode fold variant key, got nil")
+		}
+	})
+
+	t.Run("non-object input rejected", func(t *testing.T) {
+		err := RejectCaseVariantDuplicateKeys([]byte(`[1,2,3]`))
+		if err == nil {
+			t.Error("expected error for non-object input, got nil")
+		}
+	})
+
+	t.Run("invalid JSON rejected", func(t *testing.T) {
+		err := RejectCaseVariantDuplicateKeys([]byte(`{"results":`))
+		if err == nil {
+			t.Error("expected error for invalid JSON, got nil")
+		}
+	})
+
+	t.Run("trailing data after object rejected", func(t *testing.T) {
+		err := RejectCaseVariantDuplicateKeys([]byte(`{"results":[]} {"results":[]}`))
+		if err == nil {
+			t.Error("expected error for trailing data after object, got nil")
+		}
+	})
+
+	t.Run("nested objects are not recursed into", func(t *testing.T) {
+		// A duplicate inside a nested object is not this function's
+		// concern at this call; callers that care about a nested object's
+		// keys call this function again on that nested value themselves.
+		err := RejectCaseVariantDuplicateKeys([]byte(`{"results":{"a":1,"A":2}}`))
+		if err != nil {
+			t.Errorf("unexpected error = %v, want nil (nested duplicate not checked at this level)", err)
+		}
+	})
+}

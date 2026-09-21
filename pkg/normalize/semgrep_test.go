@@ -260,6 +260,28 @@ func TestSemgrepNormalizer_DuplicateCaseVariantKeyRejected(t *testing.T) {
 	}
 }
 
+func TestSemgrepNormalizer_DuplicateExactKeyRejected(t *testing.T) {
+	// {"results":[X],"results":[]} decodes into a struct by silently
+	// keeping the later "results" value, so this is only caught by
+	// streaming the object instead of unmarshaling it into a map first.
+	input := `{"results":[{"check_id":"x"}],"results":[]}`
+	_, _, err := semgrepNormalizer{}.Normalize(stringsReader(input))
+	if err == nil {
+		t.Error("Normalize() expected error for exact duplicate top-level key, got nil")
+	}
+}
+
+func TestSemgrepNormalizer_DuplicateUnicodeFoldKeyRejected(t *testing.T) {
+	// U+017F LATIN SMALL LETTER LONG S (ſ) folds to "s" under Unicode
+	// simple case folding, so "reſults" collides with "results" even
+	// though a strings.ToLower comparison would not catch it.
+	input := `{"re` + "ſ" + `ults":[{"check_id":"x"}],"results":[]}`
+	_, _, err := semgrepNormalizer{}.Normalize(stringsReader(input))
+	if err == nil {
+		t.Error("Normalize() expected error for Unicode fold-variant duplicate top-level key, got nil")
+	}
+}
+
 func TestSemgrepNormalizer_RegisteredInDefaultRegistry(t *testing.T) {
 	n, err := Get("semgrep")
 	if err != nil {
