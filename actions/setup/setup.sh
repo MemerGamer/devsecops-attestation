@@ -39,6 +39,25 @@ write_output() {
 	fi
 }
 
+# GitHub release asset downloads intermittently return 504 (observed 4 times
+# in demo CI); retry transient failures rather than failing the step outright
+# while still failing closed on a genuine, persistent error. --retry-all-errors
+# is supported by curl 7.71+ (ubuntu-24.04 ships curl 8.x); on an older curl
+# without it, --retry alone still retries the transient cases that matter here
+# (timeouts, connection resets, 5xx with --retry falls back to --retry
+# covering just the transient/5xx set curl recognizes without the flag), so
+# the flag is added opportunistically and dropped if curl does not support it
+# rather than making the whole step depend on a specific curl version.
+CURL_RETRY_FLAGS=(--retry 5 --retry-delay 3 --connect-timeout 20)
+if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+	CURL_RETRY_FLAGS+=(--retry-all-errors)
+fi
+
+curl_fetch() {
+	# curl_fetch <url> <output-path>
+	curl -fsSL "${CURL_RETRY_FLAGS[@]}" -o "$2" "$1"
+}
+
 if [ "${INPUT_VERSION}" = "source" ]; then
 	log "building from source (INPUT_VERSION=source)"
 
@@ -103,9 +122,9 @@ else
 	trap 'rm -rf "${work_dir}"' EXIT
 
 	log "downloading ${archive_url}"
-	curl -fsSL -o "${work_dir}/${archive_name}" "${archive_url}"
+	curl_fetch "${archive_url}" "${work_dir}/${archive_name}"
 	log "downloading ${checksums_url}"
-	curl -fsSL -o "${work_dir}/checksums.txt" "${checksums_url}"
+	curl_fetch "${checksums_url}" "${work_dir}/checksums.txt"
 
 	if [ "${INPUT_VERIFY_SIGNATURE}" = "true" ]; then
 		if ! command -v cosign >/dev/null 2>&1; then
@@ -120,7 +139,7 @@ Or set verify-signature: false explicitly to skip release signature verification
 		# than separate .sig/.pem files, since cosign v3 (installed by
 		# sigstore/cosign-installer v4.x) no longer honors
 		# --output-signature/--output-certificate for sign-blob.
-		curl -fsSL -o "${work_dir}/checksums.txt.sigstore.json" "${base_url}/checksums.txt.sigstore.json"
+		curl_fetch "${base_url}/checksums.txt.sigstore.json" "${work_dir}/checksums.txt.sigstore.json"
 		# Pin the exact signer identity rather than a regexp over "any
 		# workflow in this repo": only the release-please workflow, running
 		# on the default branch, in response to a push (never a
