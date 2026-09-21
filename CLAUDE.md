@@ -207,11 +207,12 @@ as the MSc contribution. FROST and network gossip are PhD territory.
   `GateDecision` JSON document was written to `--output`: `gate evaluate` writes it on both an
   allow and a deny, but never on an error (unverified chain, unauthorized signer, missing log
   entry, hash mismatch). Only a parsed `GateDecision` is subject to the `expect` input.
-- `cmd/sign` resolves the signing key in this order: `--signing-key` (discouraged, visible on
-  argv/`/proc/<pid>/cmdline` for the life of the process), `--signing-key-file` (path to a file
-  containing the 128-char hex key, whitespace trimmed), then the `ATTEST_SIGNING_KEY` environment
-  variable; exactly one source must be set. `actions/normalize-sign` passes the key via
-  `ATTEST_SIGNING_KEY` rather than a flag for this reason.
+- `cmd/sign` resolves the signing key from `--signing-key` (discouraged, visible on
+  argv/`/proc/<pid>/cmdline` for the life of the process) or `--signing-key-file` (path to a file
+  containing the 128-char hex key, whitespace trimmed); the two flags are mutually exclusive,
+  setting both is an error. The `ATTEST_SIGNING_KEY` environment variable is used only when
+  neither flag is set; at least one of the three sources must be set. `actions/normalize-sign`
+  passes the key via `ATTEST_SIGNING_KEY` rather than a flag for this reason.
 - `actions/setup`'s `verify-signature` input defaults to `"true"`: it verifies `checksums.txt`
   against its cosign `sign-blob` Sigstore bundle before trusting it, pinned to the exact signer
   identity `https://github.com/<repository>/.github/workflows/release-please.yml@refs/heads/main`

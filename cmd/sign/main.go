@@ -158,9 +158,9 @@ func resolveToolAndCheckType(f *signFlags) error {
 }
 
 // resolveSigningKey determines the hex-encoded Ed25519 private key to sign
-// with, from exactly one of three sources, in this priority order:
-// --signing-key, --signing-key-file, then the ATTEST_SIGNING_KEY
-// environment variable. --signing-key is kept for backward compatibility
+// with. --signing-key and --signing-key-file are mutually exclusive; setting
+// both is an error. The ATTEST_SIGNING_KEY environment variable is used only
+// when neither flag is set. --signing-key is kept for backward compatibility
 // but is discouraged: it is visible in /proc/<pid>/cmdline for the
 // process's lifetime, which matters on shared CI runners. lookup is
 // injected so tests can supply a fake environment instead of mutating the
@@ -193,7 +193,7 @@ func resolveSigningKey(f signFlags, lookup func(string) (string, bool)) (string,
 		return envKey, nil
 	}
 
-	return "", fmt.Errorf("signing key required: set exactly one of --signing-key, --signing-key-file, or ATTEST_SIGNING_KEY")
+	return "", fmt.Errorf("signing key required: set --signing-key or --signing-key-file (mutually exclusive), or ATTEST_SIGNING_KEY")
 }
 
 func runSign(_ context.Context, f signFlags) error {
