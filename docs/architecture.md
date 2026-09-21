@@ -54,7 +54,8 @@ flowchart TB
 
     A4 --> GV["Gate: VerifyChain\n(signatures, linkage,\ntimestamps, max-age,\nduplicate check types)"]
     GV --> GA["Gate: Authorize Signers\n(per-check-type key check)"]
-    GA --> GL["Gate: Log Entry Check\n(--require-log-entries)"]
+    GA --> GB["Gate: Commit/Subject Binding\n(--target-ref / --subject)"]
+    GB --> GL["Gate: Log Entry Check\n(--require-log-entries)"]
     GL --> GH["Gate: Policy Hash Check\n(SHA-256 of .rego file)"]
     GH --> GC["Gate: Config Hash Check\n(SHA-256 of resolved data.config)"]
     GC --> GP["Gate: OPA Policy Eval\n(data.config, authorized_signers,\nfindings, ...)"]
@@ -94,19 +95,19 @@ making insertion, deletion, or reordering detectable.
    c. Signer authorization - verifies each attestation was signed by the
       key authorized for its check type (`--authorized-signers`) or that all
       attestations use a single shared key (`--verify-signer`).
-   c.1. Commit binding - if `--target-ref` (and/or `--subject`) is set, every
+   d. Commit binding - if `--target-ref` (and/or `--subject`) is set, every
       attestation's `result.target_ref` (and/or `subject.name`) must equal it.
-   d. Log entry enforcement - if `--require-log-entries` is set, every
+   e. Log entry enforcement - if `--require-log-entries` is set, every
       attestation must carry a non-empty `LogEntry` (presence only).
-   e. Policy file integrity - if `--policy-hash` is set, the SHA-256 of the
+   f. Policy file integrity - if `--policy-hash` is set, the SHA-256 of the
       Rego policy source (the file at `--policy`, or the embedded canonical
       policy when omitted) is verified before it is loaded.
-   f. Policy configuration integrity - if `--policy-hash` is set and the
+   g. Policy configuration integrity - if `--policy-hash` is set and the
       effective `data.config` (`required_checks`, `fail_on_severity`,
       `zero_tolerance_checks`, defaults filled in) is not the bundled
       policy's defaults, `--config-hash` must match its SHA-256, computed
       with `gate config-hash`.
-   g. OPA policy evaluation - the verified, authorized chain is evaluated
+   h. OPA policy evaluation - the verified, authorized chain is evaluated
       against the Rego policy, parameterized by `data.config`, to produce an
       ALLOW or BLOCK decision.
 4. If the policy allows, deployment proceeds. If blocked, the pipeline fails

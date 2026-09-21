@@ -114,13 +114,13 @@ The system works as follows:
    a. `VerifyChainWithOptions` -- signatures, chain linkage, subject consistency, timestamp
       ordering, max-age, no duplicate check types.
    b. Signer authorization -- per-check-type (`--authorized-signers`) or shared key (`--verify-signer`).
-   c. Log entry enforcement -- `--require-log-entries` rejects attestations without a `LogEntry`.
-   d. Commit/subject binding -- `--target-ref` requires every attestation's `result.target_ref`
+   c. Commit/subject binding -- `--target-ref` requires every attestation's `result.target_ref`
       to equal the given commit or artifact digest exactly, and `--subject` requires every
       attestation's `subject.name` to equal the given value; either check is disabled by passing
       an empty string. The `actions/gate` composite action defaults `target-ref` to
       `${{ github.sha }}`, binding the gate decision to the commit actually being evaluated
       rather than trusting whatever `result.target_ref` the signed attestations happen to carry.
+   d. Log entry enforcement -- `--require-log-entries` rejects attestations without a `LogEntry`.
    e. Policy hash check -- `--policy-hash` pins the SHA-256 of the Rego source (file or the
       embedded default) before OPA loads it.
    f. Config hash check -- `--config-hash` pins the SHA-256 of the fully resolved `data.config`;
