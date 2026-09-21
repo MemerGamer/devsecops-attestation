@@ -85,7 +85,7 @@ func init() {
 	evaluateCmd.Flags().StringVar(&evalFlags.chain, "chain", "", "path to chain JSON file (required)")
 	evaluateCmd.Flags().StringVar(&evalFlags.verifySigner, "verify-signer", "", "hex public key that all attestations must be signed with (required)")
 	evaluateCmd.Flags().StringVar(&evalFlags.policyFile, "policy", "", "path to Rego policy file (uses built-in policy if empty)")
-	evaluateCmd.Flags().StringVar(&evalFlags.policyHash, "policy-hash", "", "expected SHA-256 hex of the policy file; requires --policy")
+	evaluateCmd.Flags().StringVar(&evalFlags.policyHash, "policy-hash", "", "expected SHA-256 hex of the policy that will be evaluated; checked against the file given by --policy, or against the bundled default policy when --policy is empty")
 	evaluateCmd.Flags().StringVar(&evalFlags.configHash, "config-hash", "", "expected SHA-256 hex of the effective policy configuration (see \"gate config-hash\"); required when --policy-hash is set and the effective config is not the bundled policy's defaults")
 	evaluateCmd.Flags().StringVar(&evalFlags.authorizedSigners, "authorized-signers", "", "check-type=hex pairs e.g. sast=<hex>,sca=<hex>")
 	evaluateCmd.Flags().StringVar(&evalFlags.output, "output", "", "write GateDecision JSON to this path")
