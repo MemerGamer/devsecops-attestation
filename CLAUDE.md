@@ -115,11 +115,17 @@ The system works as follows:
       ordering, max-age, no duplicate check types.
    b. Signer authorization -- per-check-type (`--authorized-signers`) or shared key (`--verify-signer`).
    c. Log entry enforcement -- `--require-log-entries` rejects attestations without a `LogEntry`.
-   d. Policy hash check -- `--policy-hash` pins the SHA-256 of the Rego source (file or the
+   d. Commit/subject binding -- `--target-ref` requires every attestation's `result.target_ref`
+      to equal the given commit or artifact digest exactly, and `--subject` requires every
+      attestation's `subject.name` to equal the given value; either check is disabled by passing
+      an empty string. The `actions/gate` composite action defaults `target-ref` to
+      `${{ github.sha }}`, binding the gate decision to the commit actually being evaluated
+      rather than trusting whatever `result.target_ref` the signed attestations happen to carry.
+   e. Policy hash check -- `--policy-hash` pins the SHA-256 of the Rego source (file or the
       embedded default) before OPA loads it.
-   e. Config hash check -- `--config-hash` pins the SHA-256 of the fully resolved `data.config`;
+   f. Config hash check -- `--config-hash` pins the SHA-256 of the fully resolved `data.config`;
       required whenever `--policy-hash` is set and the effective configuration is non-default.
-   f. OPA policy evaluation -- the verified, authorized chain is evaluated against Rego,
+   g. OPA policy evaluation -- the verified, authorized chain is evaluated against Rego,
       parameterized by `data.config`.
 4. If the policy allows, deployment proceeds. If blocked, the pipeline fails with reasons.
 
@@ -201,6 +207,25 @@ as the MSc contribution. FROST and network gossip are PhD territory.
   `GateDecision` JSON document was written to `--output`: `gate evaluate` writes it on both an
   allow and a deny, but never on an error (unverified chain, unauthorized signer, missing log
   entry, hash mismatch). Only a parsed `GateDecision` is subject to the `expect` input.
+- `cmd/sign` resolves the signing key in this order: `--signing-key` (discouraged, visible on
+  argv/`/proc/<pid>/cmdline` for the life of the process), `--signing-key-file` (path to a file
+  containing the 128-char hex key, whitespace trimmed), then the `ATTEST_SIGNING_KEY` environment
+  variable; exactly one source must be set. `actions/normalize-sign` passes the key via
+  `ATTEST_SIGNING_KEY` rather than a flag for this reason.
+- `actions/setup`'s `verify-signature` input defaults to `"true"`: it verifies `checksums.txt`
+  against its cosign `sign-blob` Sigstore bundle before trusting it, pinned to the exact signer
+  identity `https://github.com/<repository>/.github/workflows/release-please.yml@refs/heads/main`
+  with `--certificate-github-workflow-trigger push`, so only the release-please workflow running
+  on the default branch in response to a push (never a `pull_request`, which a fork could forge)
+  is trusted to have produced the release artifacts. The step fails with guidance if `cosign` is
+  not on `PATH` rather than silently skipping verification; set `verify-signature: false`
+  explicitly to opt out (e.g. local/demo runs, or `version: source`).
+- The bundled policy's `required_checks` is the exact declared set of check types (default
+  `{"sast", "sca", "config", "secret"}`, overridable via `data.config.required_checks`), not a
+  minimum floor: any attestation in the chain whose `check_type` is not in `required_checks` is an
+  undeclared check type and denies deployment, the same as a missing required check. Adding a new
+  check type to a pipeline requires adding it to `required_checks` as well, or its attestations
+  block deployment.
 
 ## Test Coverage
 
