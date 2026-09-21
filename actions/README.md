@@ -83,7 +83,7 @@ appends the signed attestation to the chain). Requires `attest` on `PATH`
 | `subject` | no | `${{ github.repository }}` | Artifact/application name. |
 | `target-ref` | no | `${{ github.sha }}` | Git SHA or artifact digest. |
 | `tool-version` | no | `unknown` | Underlying tool's version string. |
-| `fail-on` | no | `high` | Informational severity threshold recorded at normalize time; the gate action's `fail-on-severity` is the actual policy decision. |
+| `fail-on` | no | `high` | Minimum severity (inclusive) that marks the signed attestation's `result.passed` as `false`. Not merely informational: the bundled policy's failed-checks rule denies deployment for any attestation with `passed=false`, so this threshold directly affects the gate's blocking decision. Should match the gate action's `fail-on-severity`. |
 | `signer-id` | no | `""` | Human-readable signer identity. Omit to let `attest` derive it from `GITHUB_SERVER_URL`/`GITHUB_REPOSITORY`/`GITHUB_WORKFLOW`/`GITHUB_JOB`, which works unchanged on Forgejo. |
 | `log-entry` | no | `""` | Transparency log reference. Omit to let `attest` derive a run URL from `GITHUB_SERVER_URL`/`GITHUB_REPOSITORY`/`GITHUB_RUN_ID`. |
 

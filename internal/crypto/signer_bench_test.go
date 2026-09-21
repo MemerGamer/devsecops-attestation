@@ -211,7 +211,20 @@ func BenchmarkVerify_RSA2048(b *testing.B) {
 // TestEmitKeySizes records per-algorithm signature size and public-key size to
 // benchmarks/results/key_sizes.csv. It is a plain test (not a benchmark) so it
 // runs with "go test -run TestEmitKeySizes".
+//
+// It only writes the file when WRITE_BENCH_RESULTS=1 is set in the
+// environment. ECDSA-P256's ASN.1 DER signature encoding varies between 70
+// and 72 bytes run to run (a short r or s component omits its leading
+// padding byte), so an unconditional write makes plain "go test ./..." dirty
+// the tracked benchmarks/results/key_sizes.csv on every run without that
+// variance carrying any information the thesis evaluation needs beyond "DER
+// encoding is variable-length". See benchmarks/README.md for how to
+// regenerate the file when a real update is wanted.
 func TestEmitKeySizes(t *testing.T) {
+	if os.Getenv("WRITE_BENCH_RESULTS") != "1" {
+		t.Skip("skipping key_sizes.csv regeneration; set WRITE_BENCH_RESULTS=1 to write it (see benchmarks/README.md)")
+	}
+
 	// Resolve the repo root: this test lives in internal/crypto/, so go up two directories.
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {

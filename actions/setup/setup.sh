@@ -16,7 +16,11 @@ set -euo pipefail
 : "${INPUT_REPOSITORY:?INPUT_REPOSITORY is required}"
 : "${INPUT_DOWNLOAD_BASE_URL:?INPUT_DOWNLOAD_BASE_URL is required}"
 : "${INPUT_INSTALL_DIR:?INPUT_INSTALL_DIR is required}"
-: "${INPUT_VERIFY_SIGNATURE:=false}"
+# Unset means "not provided": default to the documented "true". A value
+# that is explicitly set but empty is a misconfiguration, not "disabled" -
+# leave it as-is so the case statement below fails closed with a clear
+# error instead of silently skipping signature verification.
+INPUT_VERIFY_SIGNATURE="${INPUT_VERIFY_SIGNATURE-true}"
 : "${GITHUB_ACTION_PATH:?GITHUB_ACTION_PATH is required (set by the runner for composite actions)}"
 
 install_dir="${INPUT_INSTALL_DIR}"
@@ -37,6 +41,32 @@ write_output() {
 	if [ -n "${GITHUB_OUTPUT:-}" ]; then
 		printf '%s=%s\n' "$1" "$2" >>"${GITHUB_OUTPUT}"
 	fi
+}
+
+# Normalize verify-signature case-insensitively: "true"/"True"/"TRUE" all
+# enable it, "false"/"False"/"FALSE" all disable it, and anything else is a
+# misconfiguration that fails closed with a clear error rather than silently
+# skipping signature verification. Uses tr rather than ${var,,} so this
+# works on bash 3.2 (e.g. macOS's default /bin/bash), not just bash 4+.
+verify_signature_lower="$(printf '%s' "${INPUT_VERIFY_SIGNATURE}" | tr '[:upper:]' '[:lower:]')"
+case "${verify_signature_lower}" in
+true) verify_signature=true ;;
+false) verify_signature=false ;;
+*) fail "verify-signature must be 'true' or 'false' (case-insensitive), got '${INPUT_VERIFY_SIGNATURE}'" ;;
+esac
+
+# GitHub release asset downloads intermittently return 504 (observed 4 times
+# in demo CI); retry transient failures rather than failing the step outright
+# while still failing closed on a genuine, persistent error. Plain --retry
+# already covers the cases that matter here: connect/transfer timeouts,
+# connection resets, and HTTP 408/429/500/502/503/504 responses. It needs no
+# curl-version detection, unlike --retry-all-errors (curl 7.71+), so there is
+# no fallback path to keep in sync or leave untested on an older curl.
+CURL_RETRY_FLAGS=(--retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300)
+
+curl_fetch() {
+	# curl_fetch <url> <output-path>
+	curl -fsSL "${CURL_RETRY_FLAGS[@]}" -o "$2" "$1"
 }
 
 if [ "${INPUT_VERSION}" = "source" ]; then
@@ -103,11 +133,11 @@ else
 	trap 'rm -rf "${work_dir}"' EXIT
 
 	log "downloading ${archive_url}"
-	curl -fsSL -o "${work_dir}/${archive_name}" "${archive_url}"
+	curl_fetch "${archive_url}" "${work_dir}/${archive_name}"
 	log "downloading ${checksums_url}"
-	curl -fsSL -o "${work_dir}/checksums.txt" "${checksums_url}"
+	curl_fetch "${checksums_url}" "${work_dir}/checksums.txt"
 
-	if [ "${INPUT_VERIFY_SIGNATURE}" = "true" ]; then
+	if [ "${verify_signature}" = "true" ]; then
 		if ! command -v cosign >/dev/null 2>&1; then
 			fail "verify-signature=true (the default) but cosign is not on PATH. Add sigstore/cosign-installer before this step, e.g.:
   - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -120,7 +150,7 @@ Or set verify-signature: false explicitly to skip release signature verification
 		# than separate .sig/.pem files, since cosign v3 (installed by
 		# sigstore/cosign-installer v4.x) no longer honors
 		# --output-signature/--output-certificate for sign-blob.
-		curl -fsSL -o "${work_dir}/checksums.txt.sigstore.json" "${base_url}/checksums.txt.sigstore.json"
+		curl_fetch "${base_url}/checksums.txt.sigstore.json" "${work_dir}/checksums.txt.sigstore.json"
 		# Pin the exact signer identity rather than a regexp over "any
 		# workflow in this repo": only the release-please workflow, running
 		# on the default branch, in response to a push (never a

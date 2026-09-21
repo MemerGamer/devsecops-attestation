@@ -65,3 +65,19 @@ cd /path/to/devsecops-attestation
 export PATH=/home/hunor/.local/go/bin:$PATH
 go test -bench=. -benchmem -count=5 ./internal/... ./pkg/... | tee benchmarks/results/go-bench.txt
 ```
+
+### Key and signature sizes (`results/key_sizes.csv`)
+
+`TestEmitKeySizes` in `internal/crypto/signer_bench_test.go` only writes this file when
+`WRITE_BENCH_RESULTS=1` is set. Plain `go test ./...` (including CI) skips it, so the tracked
+CSV is never rewritten as a side effect of running the test suite: ECDSA-P256's ASN.1 DER
+signature encoding varies between 70 and 72 bytes run to run (a short `r` or `s` component omits
+its leading padding byte), which would otherwise dirty the tracked file on every run without
+carrying any information beyond "DER encoding is variable-length".
+
+To regenerate it deliberately:
+
+```bash
+cd /path/to/devsecops-attestation
+WRITE_BENCH_RESULTS=1 go test -run TestEmitKeySizes ./internal/crypto/... -v
+```

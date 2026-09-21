@@ -2,6 +2,8 @@ module github.com/MemerGamer/devsecops-attestation
 
 go 1.26.0
 
+toolchain go1.26.8
+
 require (
 	github.com/google/uuid v1.6.0
 	github.com/open-policy-agent/opa v1.20.2

@@ -321,6 +321,49 @@ if command -v shellcheck >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# 9b. setup.sh verify-signature normalization: mixed-case true/false must
+#     both be accepted, and an invalid value must fail closed (exit 1)
+#     rather than silently skipping signature verification.
+# ---------------------------------------------------------------------------
+log "setup.sh: verify-signature case-insensitivity and fail-closed validation"
+rc=0
+env \
+	INPUT_VERSION="source" \
+	INPUT_REPOSITORY="MemerGamer/devsecops-attestation" \
+	INPUT_DOWNLOAD_BASE_URL="unused" \
+	INPUT_INSTALL_DIR="${WORK_DIR}/setup-verify-mixedcase-install" \
+	INPUT_VERIFY_SIGNATURE="False" \
+	GITHUB_ACTION_PATH="${ACTIONS_DIR}/setup" \
+	bash "${ACTIONS_DIR}/setup/setup.sh" || rc=$?
+check "setup.sh verify-signature=False (mixed case) accepted" 0 "${rc}"
+
+rc=0
+env \
+	INPUT_VERSION="source" \
+	INPUT_REPOSITORY="MemerGamer/devsecops-attestation" \
+	INPUT_DOWNLOAD_BASE_URL="unused" \
+	INPUT_INSTALL_DIR="${WORK_DIR}/setup-verify-invalid-install" \
+	INPUT_VERIFY_SIGNATURE="yes" \
+	GITHUB_ACTION_PATH="${ACTIONS_DIR}/setup" \
+	bash "${ACTIONS_DIR}/setup/setup.sh" || rc=$?
+check "setup.sh verify-signature=yes (invalid) fails closed" 1 "${rc}"
+
+# INPUT_VERIFY_SIGNATURE explicitly set but empty must fail closed rather
+# than silently disabling verification (unlike an unset variable, which
+# defaults to "true" - see the unset case exercised against the download
+# path below).
+rc=0
+env \
+	INPUT_VERSION="source" \
+	INPUT_REPOSITORY="MemerGamer/devsecops-attestation" \
+	INPUT_DOWNLOAD_BASE_URL="unused" \
+	INPUT_INSTALL_DIR="${WORK_DIR}/setup-verify-empty-install" \
+	INPUT_VERIFY_SIGNATURE="" \
+	GITHUB_ACTION_PATH="${ACTIONS_DIR}/setup" \
+	bash "${ACTIONS_DIR}/setup/setup.sh" || rc=$?
+check "setup.sh verify-signature='' (explicitly empty) fails closed" 1 "${rc}"
+
+# ---------------------------------------------------------------------------
 # 10. setup.sh download path against a fake local release served over HTTP
 # ---------------------------------------------------------------------------
 log "setup.sh: download path against fake local release"
@@ -387,6 +430,35 @@ check "setup.sh download path (valid checksum)" 0 "${rc}"
 ok=1
 [ -x "${DL_INSTALL_DIR}/attest" ] && ok=0
 check_true "setup.sh download installed attest" "${ok}"
+
+# INPUT_VERIFY_SIGNATURE left unset must default to "true" (the documented
+# default) and actually attempt verification, not silently skip it. The
+# fake release above has no checksums.txt.sigstore.json bundle, so this
+# fails either way: with cosign on PATH, verify-blob has nothing to fetch;
+# without cosign, setup.sh fails closed with its documented guidance. Both
+# outcomes prove verification was attempted rather than skipped.
+UNSET_INSTALL_DIR="${WORK_DIR}/setup-verify-unset-install"
+rc=0
+unset_output="$(env \
+	INPUT_VERSION="${FAKE_VERSION}" \
+	INPUT_REPOSITORY="MemerGamer/devsecops-attestation" \
+	INPUT_DOWNLOAD_BASE_URL="http://127.0.0.1:${PORT}/releases/download" \
+	INPUT_INSTALL_DIR="${UNSET_INSTALL_DIR}" \
+	RUNNER_OS="Linux" \
+	RUNNER_ARCH="$([ "${FAKE_ARCH}" = "amd64" ] && echo X64 || echo ARM64)" \
+	RUNNER_TEMP="${WORK_DIR}" \
+	GITHUB_ACTION_PATH="${ACTIONS_DIR}/setup" \
+	bash "${ACTIONS_DIR}/setup/setup.sh" 2>&1)" || rc=$?
+if command -v cosign >/dev/null 2>&1; then
+	check "setup.sh verify-signature unset attempts verification (cosign present, fake release has no sigstore bundle)" 1 "${rc}"
+else
+	ok=1
+	case "${unset_output}" in
+	*"cosign is not on PATH"*) ok=0 ;;
+	esac
+	check_true "setup.sh verify-signature unset attempts verification (documented cosign-missing error)" "${ok}"
+	check "setup.sh verify-signature unset fails closed without cosign" 1 "${rc}"
+fi
 
 # Tampered checksums.txt must fail closed.
 TAMPER_TAG_DIR="${FAKE_RELEASE_ROOT}/releases/download/v8.8.8"

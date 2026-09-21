@@ -16,7 +16,6 @@ env:
   # Public key secrets for gate verification: SAST_PUBLIC_KEY, SCA_PUBLIC_KEY, CONFIG_PUBLIC_KEY, SECRET_SCANNING_PUBLIC_KEY
   ARTIFACT_REF: ${{ github.sha }}
   APP_NAME: ${{ github.repository }}
-  GO_VERSION: '1.26'
   TRIVY_VERSION: '0.74.0'
   GITLEAKS_VERSION: '8.30.1'
   SEMGREP_VERSION: '1.177.0'
@@ -34,17 +33,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Cache Go modules and build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: Run unit tests with coverage
         run: |
@@ -128,8 +118,8 @@ jobs:
           asset="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
           checksums="trivy_${TRIVY_VERSION}_checksums.txt"
           base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
-          curl -sfLO "${base}/${asset}"
-          curl -sfLO "${base}/${checksums}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${asset}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${checksums}"
           sha256sum --ignore-missing -c "${checksums}"
           tar xzf "${asset}" trivy
           sudo install -m 0755 trivy /usr/local/bin/trivy
@@ -196,8 +186,8 @@ jobs:
           asset="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           checksums="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
-          curl -sfLO "${base}/${asset}"
-          curl -sfLO "${base}/${checksums}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${asset}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${checksums}"
           sha256sum --ignore-missing -c "${checksums}"
           tar xzf "${asset}" gitleaks
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
@@ -253,17 +243,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Cache Go modules and build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       # version: source builds keygen/attest/verify/gate from this exact
       # checkout with `go build`, so the binaries evaluating the policy are
@@ -418,7 +399,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
 
       - name: Run composite actions self-test
         run: bash actions/test/run-local.sh
