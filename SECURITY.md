@@ -114,6 +114,37 @@ the signing side and `--fail-on-severity` on the gate side set to the same
 value; letting them drift means a finding can fail one threshold without
 being caught by the other.
 
+### Transparency Log Entry Semantics (Non-Authenticated Reference)
+
+`--require-log-entries` checks presence only: it rejects an attestation
+whose `log_entry` field is empty, and nothing more. It does not verify that
+the referenced entry exists, that it actually corresponds to this
+attestation, or that it has not been altered or removed since the
+attestation was signed. `LogEntry` is intentionally excluded from the
+canonical payload (see "Key Design Decisions" below), so it carries no
+cryptographic binding to the attestation at all; an attacker who can modify
+a stored chain after signing can rewrite `log_entry` to point anywhere
+without invalidating the Ed25519 signature. Today `log_entry` is populated
+with the GitHub Actions run URL, a human-auditable reference an operator
+can follow up on manually, not a machine-verified proof.
+
+Turning this into an actual guarantee requires submitting each attestation
+to a transparency log (Rekor/Sigstore) at signing time and verifying its
+inclusion proof at the gate - both are PhD-phase extensions (see
+`docs/phd-extension.md` and the `TODO(phd):` markers in
+`internal/attestation`); `--require-log-entries` alone provides no
+tamper-evidence for the referenced entry itself.
+
+`SignerID` is different: it is included in the canonical payload and
+therefore covered by the Ed25519 signature (see "Injected or modified
+`SignerID`" in the threat table below), so it cannot be altered after
+signing without invalidating the signature. But the bundled policy does not
+read or constrain `SignerID` at all - policy-level signer authorization is
+enforced entirely through the signing key (`--verify-signer` /
+`--authorized-signers` / `signer_public_key_hex`), not through the
+human-readable `SignerID` string. `SignerID` is authentic but not itself
+policy-checked; treat it as an audit trail, not an authorization mechanism.
+
 ## Threat Model
 
 | Threat | Mitigation |
@@ -126,7 +157,7 @@ being caught by the other.
 | Insertion, deletion, or reordering of attestations in the interior of the chain | SHA-256 chain linkage; any modification breaks the digest at that position |
 | Truncation of one or more attestations from the tail of an otherwise verified chain (chain linkage alone does not protect a suffix: dropping the last entries leaves the remaining links internally consistent) | The bundled policy seals the chain against the declared `required_checks` set: any attestation whose `check_type` is not in `required_checks` is denied outright as an "undeclared check type" the moment it appears, and dropping a declared check type from the tail is caught as "missing required checks". Residual risk: a check type an operator never adds to `required_checks` carries no seal at all - a chain that never ran it is indistinguishable from one that had it truncated, so every check type the policy is meant to enforce must be declared in `required_checks` |
 | Substituted Rego policy at evaluation time | `--policy-hash` pins the expected SHA-256; a modified policy file is rejected |
-| Missing transparency log reference | `--require-log-entries` causes the gate to reject any attestation without a `log_entry` |
+| Missing transparency log reference | `--require-log-entries` causes the gate to reject any attestation without a `log_entry`. Presence only: this does not verify the referenced entry's existence or integrity - see "Transparency Log Entry Semantics" above |
 | Duplicate check types (e.g. two SAST steps) | `VerifyChainWithOptions` rejects chains with duplicate check types |
 | Policy logic pinned but its parameters silently changed | `--config-hash` pins the effective `data.config`; required whenever `--policy-hash` is set and the configuration is not the bundled defaults |
 | Malformed `data.config` (unrecognized severity, or a required/zero-tolerance value that is not a non-empty array of check types) | The gate CLI validates `--data` files before evaluation; the bundled policy's `config_valid` rule denies deployment for any malformed override that reaches OPA |
