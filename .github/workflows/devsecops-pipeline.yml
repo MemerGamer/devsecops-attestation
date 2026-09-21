@@ -35,6 +35,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
+          check-latest: true
           cache-dependency-path: go.sum
 
       - name: Run unit tests with coverage
@@ -245,6 +246,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
+          check-latest: true
           cache-dependency-path: go.sum
 
       # version: source builds keygen/attest/verify/gate from this exact
@@ -401,6 +403,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
+          check-latest: true
 
       - name: Run composite actions self-test
         run: bash actions/test/run-local.sh
