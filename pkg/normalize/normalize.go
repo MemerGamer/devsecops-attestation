@@ -7,7 +7,9 @@
 package normalize
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -169,41 +171,92 @@ func Run(name string, r io.Reader, failOn Severity) (Result, error) {
 	}, nil
 }
 
-// RejectCaseVariantDuplicateKeys decodes obj (a JSON object) into a
-// map[string]json.RawMessage and returns an error if two keys are equal
-// under strings.EqualFold, e.g. {"results": [...], "RESULTS": []}.
-// encoding/json's decoding into a struct silently resolves such collisions
-// by matching the struct field case-insensitively and keeping whichever
-// value appears later in the object, which lets a second, differently-cased
-// copy of a findings-bearing key silently replace (or coexist unnoticed
-// with) the one an adapter's struct tags expect. Adapters call this on the
-// top-level report object, and again on any nested object whose keys they
-// rely on to enumerate findings, before decoding into their own structs.
+// RejectCaseVariantDuplicateKeys streams obj (a JSON object) token by token
+// and returns an error if two keys collide: either exact duplicates, e.g.
+// {"results": [...], "results": []}, or keys equal under strings.EqualFold,
+// e.g. {"results": [...], "RESULTS": []} or {"reſults": [...], "results": []}
+// (U+017F LATIN SMALL LETTER LONG S folds to "s" under Unicode simple case
+// folding, the same folding strings.EqualFold and encoding/json's own field
+// matching use).
+//
+// Decoding obj into a map[string]json.RawMessage, as an earlier version of
+// this function did, cannot catch the exact-duplicate case: encoding/json
+// resolves two identical keys in the same object by silently keeping
+// whichever value appears later, so by the time the map exists the
+// collision is already gone. Comparing with strings.ToLower also misses
+// Unicode fold variants such as the long s or the Kelvin sign (U+212A,
+// which folds to "k") that are not plain ASCII case changes. Streaming the
+// object with json.Decoder.Token lets every key be seen and compared,
+// exactly as it appeared on the wire, before any collision resolution
+// happens.
+//
+// Adapters call this on the top-level report object, and again on any
+// nested object whose keys they rely on to enumerate findings, before
+// decoding into their own structs. Only the keys directly inside obj are
+// checked; nested objects are skipped over (not recursed into), matching
+// the one-level behavior adapters rely on at every nesting level they call
+// this at.
 //
 // obj must itself already be valid JSON (typically a json.RawMessage
-// captured from an outer decode); a non-object value (or invalid JSON) is
+// captured from an outer decode) whose top-level value is an object; a
+// non-object value, invalid JSON, or trailing data after the object is
 // reported as an error rather than silently skipped, since a normalizer
-// that calls this expects an object at this position.
+// that calls this expects exactly one object at this position.
 func RejectCaseVariantDuplicateKeys(obj json.RawMessage) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(obj, &raw); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(obj))
+
+	open, err := dec.Token()
+	if err != nil {
 		return fmt.Errorf("expected a JSON object for duplicate-key check: %w", err)
 	}
-
-	seen := make(map[string]string, len(raw))
-	keys := make([]string, 0, len(raw))
-	for k := range raw {
-		keys = append(keys, k)
+	delim, ok := open.(json.Delim)
+	if !ok || delim != '{' {
+		return fmt.Errorf("expected a JSON object for duplicate-key check, got %v", open)
 	}
-	sort.Strings(keys)
 
-	for _, k := range keys {
-		folded := strings.ToLower(k)
-		if original, ok := seen[folded]; ok {
-			return fmt.Errorf("duplicate JSON key %q (case-insensitively equal to %q): ambiguous report, rejected", k, original)
+	// seen holds every key exactly as it appeared, in the order it was
+	// read. Each new key is compared against all of them; objects have few
+	// enough keys that the O(n^2) scan is not a concern, and it is simpler
+	// and harder to get wrong than a folded-key map lookup.
+	var seen []string
+
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return fmt.Errorf("reading JSON object key for duplicate-key check: %w", err)
 		}
-		seen[folded] = k
+		key, ok := keyTok.(string)
+		if !ok {
+			return fmt.Errorf("expected a JSON object key, got %v", keyTok)
+		}
+
+		// Consume and discard the value (whatever shape it is) without
+		// recursing into it for duplicate keys of its own; callers that
+		// care about a nested object's keys call this function again on
+		// that nested json.RawMessage themselves.
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return fmt.Errorf("reading value for JSON key %q: %w", key, err)
+		}
+
+		for _, original := range seen {
+			if original == key {
+				return fmt.Errorf("duplicate JSON key %q: ambiguous report, rejected", key)
+			}
+			if strings.EqualFold(original, key) {
+				return fmt.Errorf("duplicate JSON key %q (case-insensitively equal to %q): ambiguous report, rejected", key, original)
+			}
+		}
+		seen = append(seen, key)
 	}
+
+	if _, err := dec.Token(); err != nil {
+		return fmt.Errorf("reading closing brace for duplicate-key check: %w", err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("unexpected trailing data after JSON object for duplicate-key check")
+	}
+
 	return nil
 }
 
