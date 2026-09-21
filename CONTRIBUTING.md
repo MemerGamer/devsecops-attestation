@@ -67,23 +67,29 @@ done
 go run ./cmd/gate evaluate \
   --chain /tmp/chain.json \
   --authorized-signers "sast=$(cat keys/sast/public.hex),sca=$(cat keys/sca/public.hex),config=$(cat keys/config/public.hex),secret=$(cat keys/secret/public.hex)" \
-  --policy .github/policies/deploy.rego \
-  --policy-hash "$(sha256sum .github/policies/deploy.rego | cut -d' ' -f1)" \
+  --policy policies/deploy.rego \
+  --policy-hash "$(sha256sum policies/deploy.rego | cut -d' ' -f1)" \
   --max-age 1h \
   --require-log-entries
 ```
 
 ## Updating the Deploy Policy
 
-If you modify `.github/policies/deploy.rego`, you must update the `--policy-hash`
+If you modify `policies/deploy.rego`, you must update the `--policy-hash`
 value in `.github/workflows/devsecops-pipeline.yml`:
 
 ```shell
-sha256sum .github/policies/deploy.rego
+go run ./cmd/gate policy-hash --policy policies/deploy.rego
 ```
 
 Paste the resulting hex string as the `--policy-hash` argument in the
 `Evaluate deploy gate` step.
+
+If the gate invocation also passes `--data`, `--required-checks`,
+`--fail-on-severity`, or `--zero-tolerance-checks` (a non-default policy
+configuration), `--config-hash` must be pinned alongside `--policy-hash`; see
+[SECURITY.md](SECURITY.md#policy-configuration-integrity-trust-boundary) for
+why. Compute it with `go run ./cmd/gate config-hash` using the same flags.
 
 ## Commit Conventions
 

@@ -306,8 +306,8 @@ jobs:
           ./bin/gate evaluate \
             --chain attestation-chain.json \
             --authorized-signers "sast=${{ secrets.SAST_PUBLIC_KEY }},sca=${{ secrets.SCA_PUBLIC_KEY }},config=${{ secrets.CONFIG_PUBLIC_KEY }},secret=${{ secrets.SECRET_SCANNING_PUBLIC_KEY }}" \
-            --policy .github/policies/deploy.rego \
-            --policy-hash 39dd449347994f378d29acbd64332e83568ca4e444029ee69dcba88d177b18cc \
+            --policy policies/deploy.rego \
+            --policy-hash 12b2aa70d8610eafbe248a0a7880db7c2ec1b81f933c352f1fcd2514cd4c5d58 \
             --max-age 24h \
             --require-log-entries \
             --output gate-decision.json

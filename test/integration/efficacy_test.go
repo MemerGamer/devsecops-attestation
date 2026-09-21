@@ -1,6 +1,6 @@
 //go:build integration
 
-// Package integration — security efficacy matrix test.
+// Package integration - security efficacy matrix test.
 // Verifies that each threat-model attack vector is correctly detected and rejected.
 // Run with: go test -tags integration -run TestSecurityEfficacyMatrix ./test/integration/ -v
 package integration
@@ -239,8 +239,8 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		}
 		chain := c.Attestations()
 
-		// The authorized signers map declares scaKP for "sca" — but chain was
-		// signed with sastKP for SCA → mismatch.
+		// The authorized signers map declares scaKP for "sca", but chain was
+		// signed with sastKP for SCA: mismatch.
 		authorizedSigners := map[string]string{
 			"sast":   hex.EncodeToString(sastKP.PublicKey),
 			"sca":    hex.EncodeToString(scaKP.PublicKey), // scaKP ≠ what was used
@@ -328,7 +328,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		}
 		chain := buildFullChain(t, kp)
 
-		// An unrelated key pair — not in the authorized set.
+		// An unrelated key pair, not in the authorized set.
 		unauthorizedKP, err := crypto.GenerateKeyPair()
 		if err != nil {
 			t.Fatal(err)
@@ -401,7 +401,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		}
 		chain := buildFullChain(t, kp)
 
-		// Swap chain[0] and chain[1] — breaks chain linkage.
+		// Swap chain[0] and chain[1] - breaks chain linkage.
 		reordered := make([]types.Attestation, len(chain))
 		copy(reordered, chain)
 		reordered[0], reordered[1] = chain[1], chain[0]

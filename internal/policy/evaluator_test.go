@@ -68,6 +68,392 @@ func containsReason(reasons []string, substr string) bool {
 	return false
 }
 
+// TestBundledPolicyParsesAsRegoV1 asserts that the bundled default policy
+// (policies/deploy.rego, embedded as policy.DefaultPolicy) uses rego.v1
+// syntax and compiles and evaluates without error.
+func TestBundledPolicyParsesAsRegoV1(t *testing.T) {
+	if !strings.Contains(policy.DefaultPolicy, "import rego.v1") {
+		t.Fatalf("DefaultPolicy does not import rego.v1:\n%s", policy.DefaultPolicy)
+	}
+
+	ctx := context.Background()
+	e := policy.NewEvaluator(policy.DefaultPolicy)
+	input := buildInput([]types.Attestation{
+		buildAttestation(types.CheckSAST, true, nil),
+		buildAttestation(types.CheckSCA, true, nil),
+		buildAttestation(types.CheckConfig, true, nil),
+		buildAttestation(types.CheckSecret, true, nil),
+	})
+	decision, err := e.Evaluate(ctx, input)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if !decision.Allow {
+		t.Errorf("expected Allow=true, got false; reasons=%v", decision.Reasons)
+	}
+}
+
+func TestPolicyDataParameterization(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("custom required checks: only sast and secret required", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"required_checks": []string{"sast", "secret"},
+		}))
+		input := buildInput([]types.Attestation{
+			buildAttestation(types.CheckSAST, true, nil),
+			buildAttestation(types.CheckSecret, true, nil),
+		})
+		decision, err := e.Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if !decision.Allow {
+			t.Errorf("expected Allow=true with only sast+secret required, got false; reasons=%v", decision.Reasons)
+		}
+	})
+
+	t.Run("custom required check type missing produces clear deny reason", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"required_checks": []string{"sast", "dast"},
+		}))
+		input := buildInput([]types.Attestation{
+			buildAttestation(types.CheckSAST, true, nil),
+		})
+		decision, err := e.Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false when custom required check 'dast' is missing")
+		}
+		if !containsReason(decision.Reasons, "dast") || !containsReason(decision.Reasons, "missing required checks") {
+			t.Errorf("expected a deny reason naming the missing 'dast' check, got %v", decision.Reasons)
+		}
+	})
+
+	t.Run("fail_on_severity=high blocks a high severity finding", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"fail_on_severity": "high",
+		}))
+		input := buildInput([]types.Attestation{
+			buildAttestation(types.CheckSAST, true, []types.Finding{
+				{ID: "H1", Severity: types.SeverityHigh, Title: "high issue"},
+			}),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+			buildAttestation(types.CheckSecret, true, nil),
+		})
+		decision, err := e.Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false: high finding should block when fail_on_severity=high")
+		}
+		if !containsReason(decision.Reasons, "at or above") {
+			t.Errorf("expected a severity-threshold deny reason, got %v", decision.Reasons)
+		}
+	})
+
+	t.Run("fail_on_severity=high does not block a medium finding", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"fail_on_severity": "high",
+		}))
+		input := buildInput([]types.Attestation{
+			buildAttestation(types.CheckSAST, true, []types.Finding{
+				{ID: "M1", Severity: types.SeverityMedium, Title: "medium issue"},
+			}),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+			buildAttestation(types.CheckSecret, true, nil),
+		})
+		decision, err := e.Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if !decision.Allow {
+			t.Errorf("expected Allow=true: medium finding should not block when fail_on_severity=high; reasons=%v", decision.Reasons)
+		}
+	})
+
+	t.Run("zero_tolerance_checks override blocks findings on a non-default check type", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"zero_tolerance_checks": []string{"sast"},
+		}))
+		input := buildInput([]types.Attestation{
+			buildAttestation(types.CheckSAST, true, []types.Finding{
+				{ID: "L1", Severity: types.SeverityLow, Title: "low severity sast finding"},
+			}),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+			// A secret-scan finding no longer blocks, since zero tolerance was
+			// overridden to sast only.
+			buildAttestation(types.CheckSecret, true, []types.Finding{
+				{ID: "S1", Severity: types.SeverityLow, Title: "would have blocked under default policy"},
+			}),
+		})
+		decision, err := e.Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false: sast finding should block under zero_tolerance_checks=[sast]")
+		}
+		if !containsReason(decision.Reasons, "zero-tolerance") {
+			t.Errorf("expected a zero-tolerance deny reason, got %v", decision.Reasons)
+		}
+		if containsReason(decision.Reasons, "hardcoded credential") {
+			t.Errorf("secret-scan finding should not block once zero tolerance no longer covers 'secret'; reasons=%v", decision.Reasons)
+		}
+	})
+
+	t.Run("nil data leaves policy defaults in effect", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(nil))
+		input := buildInput([]types.Attestation{
+			buildAttestation(types.CheckSAST, true, nil),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+			buildAttestation(types.CheckSecret, true, nil),
+		})
+		decision, err := e.Evaluate(ctx, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if !decision.Allow {
+			t.Errorf("expected Allow=true with default config, got false; reasons=%v", decision.Reasons)
+		}
+	})
+}
+
+// TestPolicyFailClosedOnMalformedConfig covers the fail-open defects found in
+// review: a malformed data.config value must deny deployment instead of
+// silently disabling the check it was meant to configure.
+func TestPolicyFailClosedOnMalformedConfig(t *testing.T) {
+	ctx := context.Background()
+
+	allChecksNoFindings := func() []types.Attestation {
+		return []types.Attestation{
+			buildAttestation(types.CheckSAST, true, nil),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+			buildAttestation(types.CheckSecret, true, nil),
+		}
+	}
+
+	t.Run("unrecognized fail_on_severity string denies", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"fail_on_severity": "bogus",
+		}))
+		decision, err := e.Evaluate(ctx, buildInput(allChecksNoFindings()))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false for fail_on_severity=\"bogus\"")
+		}
+		if !containsReason(decision.Reasons, "invalid data.config.fail_on_severity") {
+			t.Errorf("expected an invalid-config deny reason, got %v", decision.Reasons)
+		}
+	})
+
+	t.Run("wrong-case fail_on_severity denies", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"fail_on_severity": "CRITICAL",
+		}))
+		decision, err := e.Evaluate(ctx, buildInput(allChecksNoFindings()))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false for fail_on_severity=\"CRITICAL\"")
+		}
+	})
+
+	t.Run("numeric fail_on_severity denies and still blocks a critical finding", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"fail_on_severity": 4,
+		}))
+		atts := []types.Attestation{
+			buildAttestation(types.CheckSAST, true, []types.Finding{
+				{ID: "C1", Severity: types.SeverityCritical, Title: "critical issue"},
+			}),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+			buildAttestation(types.CheckSecret, true, nil),
+		}
+		decision, err := e.Evaluate(ctx, buildInput(atts))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false for fail_on_severity=4 with a critical finding present")
+		}
+		if !containsReason(decision.Reasons, "invalid data.config.fail_on_severity") {
+			t.Errorf("expected an invalid-config deny reason, got %v", decision.Reasons)
+		}
+		// blocking_threshold must fall back to the critical rank so the
+		// critical finding is still caught, not silently skipped.
+		if !containsReason(decision.Reasons, "found 1 finding(s) at or above the critical severity threshold") {
+			t.Errorf("expected the critical finding to still be reported, got %v", decision.Reasons)
+		}
+	})
+
+	t.Run("required_checks as a string denies instead of vacuous allow", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"required_checks": "sast",
+		}))
+		decision, err := e.Evaluate(ctx, buildInput(nil))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false when required_checks is a string, not an array")
+		}
+		if !containsReason(decision.Reasons, "invalid data.config.required_checks") {
+			t.Errorf("expected an invalid-config deny reason, got %v", decision.Reasons)
+		}
+	})
+
+	t.Run("required_checks as an empty array denies instead of vacuous allow", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"required_checks": []string{},
+		}))
+		decision, err := e.Evaluate(ctx, buildInput(nil))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false when required_checks is an empty array")
+		}
+		if !containsReason(decision.Reasons, "invalid data.config.required_checks") {
+			t.Errorf("expected an invalid-config deny reason, got %v", decision.Reasons)
+		}
+	})
+
+	t.Run("zero_tolerance_checks as a string denies instead of allowing secrets", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"zero_tolerance_checks": "secret",
+		}))
+		atts := []types.Attestation{
+			buildAttestation(types.CheckSAST, true, nil),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+			buildAttestation(types.CheckSecret, true, []types.Finding{
+				{ID: "S1", Severity: types.SeverityLow, Title: "hardcoded API key"},
+			}),
+		}
+		decision, err := e.Evaluate(ctx, buildInput(atts))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false when zero_tolerance_checks is a string, not an array")
+		}
+		if !containsReason(decision.Reasons, "invalid data.config.zero_tolerance_checks") {
+			t.Errorf("expected an invalid-config deny reason, got %v", decision.Reasons)
+		}
+	})
+
+	t.Run("zero_tolerance_checks as an empty array denies instead of allowing secrets", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"zero_tolerance_checks": []string{},
+		}))
+		atts := []types.Attestation{
+			buildAttestation(types.CheckSAST, true, nil),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+			buildAttestation(types.CheckSecret, true, []types.Finding{
+				{ID: "S1", Severity: types.SeverityLow, Title: "hardcoded API key"},
+			}),
+		}
+		decision, err := e.Evaluate(ctx, buildInput(atts))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if decision.Allow {
+			t.Error("expected Allow=false when zero_tolerance_checks is an empty array")
+		}
+		if !containsReason(decision.Reasons, "invalid data.config.zero_tolerance_checks") {
+			t.Errorf("expected an invalid-config deny reason, got %v", decision.Reasons)
+		}
+	})
+
+	t.Run("valid config still allows deployment", func(t *testing.T) {
+		e := policy.NewEvaluator("", policy.WithData(map[string]any{
+			"required_checks":       []string{"sast", "secret"},
+			"fail_on_severity":      "high",
+			"zero_tolerance_checks": []string{"secret"},
+		}))
+		atts := []types.Attestation{
+			buildAttestation(types.CheckSAST, true, nil),
+			buildAttestation(types.CheckSecret, true, nil),
+		}
+		decision, err := e.Evaluate(ctx, buildInput(atts))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if !decision.Allow {
+			t.Errorf("expected Allow=true for a well-formed config, got false; reasons=%v", decision.Reasons)
+		}
+	})
+}
+
+// TestPolicyFailClosedOnUnrecognizedSeverity covers the fail-open defect
+// where a finding with a severity not present in severity_rank (a typo, an
+// unsupported scale, an empty string) was silently ignored because the
+// comparison against blocking_threshold was undefined.
+func TestPolicyFailClosedOnUnrecognizedSeverity(t *testing.T) {
+	ctx := context.Background()
+
+	cases := []string{"HIGH", "Critical", "", "extreme"}
+	for _, sev := range cases {
+		t.Run("severity="+sev, func(t *testing.T) {
+			e := policy.NewEvaluator("")
+			atts := []types.Attestation{
+				buildAttestation(types.CheckSAST, true, []types.Finding{
+					{ID: "U1", Severity: types.Severity(sev), Title: "unrecognized severity finding"},
+				}),
+				buildAttestation(types.CheckSCA, true, nil),
+				buildAttestation(types.CheckConfig, true, nil),
+				buildAttestation(types.CheckSecret, true, nil),
+			}
+			decision, err := e.Evaluate(ctx, buildInput(atts))
+			if err != nil {
+				t.Fatalf("Evaluate() error = %v", err)
+			}
+			if decision.Allow {
+				t.Errorf("expected Allow=false for unrecognized severity %q, got true", sev)
+			}
+			if !containsReason(decision.Reasons, "unrecognized severity") {
+				t.Errorf("expected an unrecognized-severity deny reason, got %v", decision.Reasons)
+			}
+		})
+	}
+
+	t.Run("recognized severities do not trigger the unrecognized-severity reason", func(t *testing.T) {
+		e := policy.NewEvaluator("")
+		atts := []types.Attestation{
+			buildAttestation(types.CheckSAST, true, []types.Finding{
+				{ID: "I1", Severity: types.SeverityInfo, Title: "info finding"},
+			}),
+			buildAttestation(types.CheckSCA, true, nil),
+			buildAttestation(types.CheckConfig, true, nil),
+			buildAttestation(types.CheckSecret, true, nil),
+		}
+		decision, err := e.Evaluate(ctx, buildInput(atts))
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if !decision.Allow {
+			t.Errorf("expected Allow=true for a recognized low severity finding, got false; reasons=%v", decision.Reasons)
+		}
+		if containsReason(decision.Reasons, "unrecognized severity") {
+			t.Errorf("did not expect an unrecognized-severity reason, got %v", decision.Reasons)
+		}
+	})
+}
+
 func TestDefaultPolicyRego(t *testing.T) {
 	ctx := context.Background()
 
@@ -489,7 +875,7 @@ func TestAuthorizedSigners(t *testing.T) {
 		// Only SAST signer is constrained; SCA, Config, and Secret can use any key.
 		attestations := []types.Attestation{
 			buildSignedAttestation(t, types.CheckSAST, true, nil, kp),
-			buildSignedAttestation(t, types.CheckSCA, true, nil, kpOther),   // different key, not constrained
+			buildSignedAttestation(t, types.CheckSCA, true, nil, kpOther),    // different key, not constrained
 			buildSignedAttestation(t, types.CheckConfig, true, nil, kpOther), // different key, not constrained
 			buildSignedAttestation(t, types.CheckSecret, true, nil, kpOther), // different key, not constrained
 		}

@@ -366,7 +366,7 @@ func TestFullPipelineChainReorderAttack(t *testing.T) {
 
 // scanResultInput mirrors the JSON format accepted by cmd/sign --result.
 type scanResultInput struct {
-	Passed   bool           `json:"passed"`
+	Passed   bool            `json:"passed"`
 	Findings []types.Finding `json:"findings"`
 }
 
