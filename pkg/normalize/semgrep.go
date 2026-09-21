@@ -41,15 +41,26 @@ type semgrepError struct {
 	Message string `json:"message"`
 }
 
+// semgrepNonBlockingLevels is an allowlist of error levels known to mean
+// "a subset of the scan was degraded, not that the scan overall failed":
+// syntax errors in a single target file, a single rule timing out, and
+// purely informational notices. Every other level, including "error",
+// "fatal", "critical", an empty level, and any level this adapter does not
+// recognize, is treated as blocking. This is fail-closed by construction:
+// a new or unexpected semgrep error level blocks normalization instead of
+// silently being accepted, since an allowlist of known-safe levels cannot
+// be bypassed by widening the set of values that count as "not error".
+var semgrepNonBlockingLevels = map[string]bool{
+	"warn":    true,
+	"warning": true,
+	"info":    true,
+}
+
 // isBlocking reports whether a semgrep error entry should cause
-// normalization to fail. An entry with level "error" is blocking. An entry
-// with no level at all is treated as blocking too, fail-closed, since older
-// or unexpected semgrep output should not silently be accepted. Any other
-// level ("warn", "warning", etc.) is treated as a partial-parse notice and
-// does not block.
+// normalization to fail. See semgrepNonBlockingLevels for the allowlist.
 func (e semgrepError) isBlocking() bool {
 	level := strings.ToLower(strings.TrimSpace(e.Level))
-	return level == "" || level == "error"
+	return !semgrepNonBlockingLevels[level]
 }
 
 type semgrepPaths struct {
@@ -86,6 +97,10 @@ func (semgrepNormalizer) Normalize(r io.Reader) ([]types.Finding, int, error) {
 	// not a recognized semgrep report (e.g. another tool's output fed to
 	// the wrong adapter), so this is rejected rather than silently yielding
 	// zero findings.
+	if err := RejectCaseVariantDuplicateKeys(data); err != nil {
+		return nil, 0, fmt.Errorf("semgrep report: %w", err)
+	}
+
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, 0, fmt.Errorf("parsing semgrep report: %w", err)

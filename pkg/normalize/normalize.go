@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/MemerGamer/devsecops-attestation/pkg/types"
@@ -166,6 +167,44 @@ func Run(name string, r io.Reader, failOn Severity) (Result, error) {
 		PassedCount: passedCount,
 		Findings:    findings,
 	}, nil
+}
+
+// RejectCaseVariantDuplicateKeys decodes obj (a JSON object) into a
+// map[string]json.RawMessage and returns an error if two keys are equal
+// under strings.EqualFold, e.g. {"results": [...], "RESULTS": []}.
+// encoding/json's decoding into a struct silently resolves such collisions
+// by matching the struct field case-insensitively and keeping whichever
+// value appears later in the object, which lets a second, differently-cased
+// copy of a findings-bearing key silently replace (or coexist unnoticed
+// with) the one an adapter's struct tags expect. Adapters call this on the
+// top-level report object, and again on any nested object whose keys they
+// rely on to enumerate findings, before decoding into their own structs.
+//
+// obj must itself already be valid JSON (typically a json.RawMessage
+// captured from an outer decode); a non-object value (or invalid JSON) is
+// reported as an error rather than silently skipped, since a normalizer
+// that calls this expects an object at this position.
+func RejectCaseVariantDuplicateKeys(obj json.RawMessage) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(obj, &raw); err != nil {
+		return fmt.Errorf("expected a JSON object for duplicate-key check: %w", err)
+	}
+
+	seen := make(map[string]string, len(raw))
+	keys := make([]string, 0, len(raw))
+	for k := range raw {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		folded := strings.ToLower(k)
+		if original, ok := seen[folded]; ok {
+			return fmt.Errorf("duplicate JSON key %q (case-insensitively equal to %q): ambiguous report, rejected", k, original)
+		}
+		seen[folded] = k
+	}
+	return nil
 }
 
 // MarshalIndent is a convenience wrapper that encodes a Result exactly as

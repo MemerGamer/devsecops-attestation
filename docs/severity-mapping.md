@@ -21,8 +21,9 @@ findings from different tools remain comparable once normalized.
 | checkov | a failed check with no severity reported by the tool | medium |
 | checkov | a failed check with a severity reported by the tool | as reported, via `ParseSeverity` |
 | gitleaks | any finding | critical |
-| cargo-audit | a vulnerability with a CVSS score | `FromCVSS(score)` |
-| cargo-audit | a vulnerability without a CVSS score | high |
+| cargo-audit | a vulnerability with a parseable CVSS score | `FromCVSS(score)` |
+| cargo-audit | a vulnerability without a CVSS score at all | high |
+| cargo-audit | a vulnerability with a CVSS field that fails to parse (including a CVSS 4.0 vector, which this adapter's parser does not support) | critical (fail-closed; see below) |
 | cargo-audit | an informational warning (unmaintained, yanked) | low |
 | cargo-audit | an informational warning (unsound) | medium |
 | sobelow | confidence `High` | high |
@@ -49,6 +50,15 @@ findings from different tools remain comparable once normalized.
   no safety validation) map to medium rather than low: unlike an
   unmaintained or yanked crate, an unsound crate is a concrete defect in the
   crate itself, not just a supply-chain staleness signal.
+- cargo-audit's CVSS handling distinguishes "no vector supplied" from
+  "vector supplied but unparseable." The former (the tool genuinely did not
+  score the advisory) maps to high, same as before. The latter - most
+  notably a CVSS 4.0 vector, since `cvssBaseScore` only implements the
+  CVSS v3 base metric group - fails closed to critical instead of silently
+  falling back to high: the tool did supply a score, this adapter just
+  cannot interpret it, and treating an uninterpretable score the same as no
+  score at all risks under-reporting an advisory that may in fact be
+  critical. Parsing CVSS 4.0 vectors properly is left as future work.
 - mix_audit does not guarantee every advisory carries a CVSS vector.
   `mixAuditSeverity` therefore falls back in order: a CVSS vector (via
   `FromCVSS`), then a reported severity string (via `ParseSeverity`), and
@@ -76,12 +86,24 @@ pass undetected instead of failing the signing step.
 | Tool | Required marker |
 |------|------------------|
 | trivy | `SchemaVersion == 2` |
-| semgrep | top-level `results` key present; an `errors` entry at `level: "error"` (or with no `level` at all, treated as blocking to stay fail-closed) is rejected as an incomplete scan, but a `level: "warn"`/`"warning"` entry (e.g. a single-file `PartialParsing`/syntax-error notice, `{"code":3,"level":"warn","type":"Syntax error",...}`) does not block, since it means one target was degraded, not that the run failed |
+| semgrep | top-level `results` key present; an `errors` entry is only non-blocking when its `level` is on the allowlist `warn`, `warning`, or `info` (case-insensitive) - e.g. a single-file `PartialParsing`/syntax-error notice, `{"code":3,"level":"warn","type":"Syntax error",...}`, which means one target was degraded, not that the run failed. Every other level - `error`, `fatal`, `critical`, an empty level, or any level this adapter does not recognize - blocks as an incomplete scan, fail-closed. |
 | sobelow | non-empty `sobelow_version` |
 | mix_audit | top-level `pass` key present |
 | cargo-audit | top-level `database` and `lockfile` keys present; `vulnerabilities.count` must match `len(vulnerabilities.list)`, and a positive count with an empty list is rejected |
-| checkov | the bare empty-scan summary object must carry `checkov_version` or `resource_count`; a `summary.parsing_errors` count greater than zero is rejected as an incomplete scan (for both the empty-scan and per-framework report shapes) unless that framework's `resource_count`, `passed` and `failed` are all zero, in which case the parsing errors are ignored: this is the real-world `terraform_plan`-style case where a framework attempts to parse files that turn out not to belong to it (e.g. arbitrary `.json` files) and contributes nothing either way, so a parsing error there cannot be hiding a real finding. Any framework that scanned resources or reported checks still fails on parsing errors. |
-| gitleaks | a zero-byte or whitespace-only report file is rejected: a genuine clean gitleaks scan always writes at least `[]`, so an empty file means the scanner crashed or was killed before writing its report |
+| checkov | the bare empty-scan summary object must carry `checkov_version` or `resource_count`, and must not claim `failed > 0` or `resource_count > 0` without a `results` object to back it up (rejected as an internally inconsistent, ambiguous report); a multi-framework array report must not be empty (`[]` is rejected as ambiguous rather than treated as a clean run); a `summary.parsing_errors` count greater than zero is rejected as an incomplete scan (for both the empty-scan and per-framework report shapes) unless that framework's `resource_count`, `passed`, `failed` are all zero and it lists no `failed_checks` entries, in which case the parsing errors are ignored: this is the real-world `terraform_plan`-style case where a framework attempts to parse files that turn out not to belong to it (e.g. arbitrary `.json` files) and contributes nothing either way, so a parsing error there cannot be hiding a real finding. Any framework that scanned resources, reported checks, or lists a failed check still fails on parsing errors. |
+| gitleaks | a zero-byte or whitespace-only report file is rejected, and so is the bare JSON literal `null` (which would otherwise unmarshal into zero findings without error): a genuine clean gitleaks scan always writes `[]`, so anything else means the scanner crashed or was killed before writing its report |
+
+Every adapter above also rejects a JSON object (at the top level, and at any
+nesting level the adapter reads a findings-bearing list from) that contains
+two keys equal under case-insensitive comparison, e.g.
+`{"results": [...], "RESULTS": []}` for semgrep or `Results`/`results` for
+trivy. `encoding/json` resolves such a collision silently by matching a
+struct field case-insensitively and keeping whichever value appears later
+in the object, which would let a second, differently-cased copy of a
+findings-bearing key silently replace or shadow the one the adapter actually
+reads, without either the JSON author or the operator being able to tell
+which value won. `normalize.RejectCaseVariantDuplicateKeys` detects this and
+returns an error instead.
 
 ## Tool-reported pass state
 
@@ -125,7 +147,7 @@ scale:
 ## --fail-on default
 
 Both `attest sign --fail-on` (used with `--tool-format`) and
-`attest normalize --fail-on` default to `critical`, matching the gate's
+`attest normalize --fail-on` default to `high`, matching the gate's
 default `--fail-on-severity`. `Passed` means "no finding at or above this
 threshold"; the threshold is inclusive, so `--fail-on critical` only fails a
 run on a critical finding, while `--fail-on high` fails on both high and

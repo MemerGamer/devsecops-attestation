@@ -221,3 +221,11 @@ func TestResult_MarshalIndent(t *testing.T) {
 		t.Error("MarshalIndent() returned empty output")
 	}
 }
+
+func TestGenericNormalizer_DuplicateCaseVariantKeyRejected(t *testing.T) {
+	input := `{"passed":true,"Passed":false,"findings":[]}`
+	_, _, _, err := genericNormalizer{}.normalize(stringsReader(input))
+	if err == nil {
+		t.Error("normalize() expected error for case-variant duplicate top-level key, got nil")
+	}
+}

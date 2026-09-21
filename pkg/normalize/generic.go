@@ -56,6 +56,10 @@ func (genericNormalizer) normalize(r io.Reader) ([]types.Finding, int, bool, err
 		return nil, 0, false, fmt.Errorf("reading generic report: %w", err)
 	}
 
+	if err := RejectCaseVariantDuplicateKeys(data); err != nil {
+		return nil, 0, false, fmt.Errorf("generic report: %w", err)
+	}
+
 	var input genericInput
 	if err := json.Unmarshal(data, &input); err != nil {
 		return nil, 0, false, fmt.Errorf("parsing generic report: %w", err)

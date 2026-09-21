@@ -116,13 +116,13 @@ func TestCheckovNormalizer_Normalize(t *testing.T) {
 		}
 	})
 
-	t.Run("leading whitespace before array is still detected as an array", func(t *testing.T) {
-		findings, _, err := checkovNormalizer{}.Normalize(stringsReader("  \n [] "))
-		if err != nil {
-			t.Fatalf("Normalize() error = %v", err)
-		}
-		if len(findings) != 0 {
-			t.Errorf("len(findings) = %d, want 0", len(findings))
+	t.Run("leading whitespace before an empty array is still detected as an array, and rejected as ambiguous", func(t *testing.T) {
+		// An empty framework array is ambiguous (it could mean "nothing to
+		// scan" or "report generation was cut short"), so it fails closed
+		// rather than silently normalizing to a clean run.
+		_, _, err := checkovNormalizer{}.Normalize(stringsReader("  \n [] "))
+		if err == nil {
+			t.Fatal("Normalize() expected error for empty framework array, got nil")
 		}
 	})
 
@@ -137,6 +137,38 @@ func TestCheckovNormalizer_Normalize(t *testing.T) {
 		_, _, err := checkovNormalizer{}.Normalize(stringsReader(`{"checkov_version": "3.2.0", "passed": "not-a-number"}`))
 		if err == nil {
 			t.Error("Normalize() expected error for malformed empty-scan object, got nil")
+		}
+	})
+
+	t.Run("bare summary with failed > 0 but no results field returns error", func(t *testing.T) {
+		// A bare summary object claiming failed checks without a "results"
+		// object to list them is internally inconsistent, so it must not be
+		// silently treated as a clean pass with zero findings.
+		_, _, err := checkovNormalizer{}.Normalize(stringsReader(`{"checkov_version": "3.2.0", "passed": 0, "failed": 3, "resource_count": 3}`))
+		if err == nil {
+			t.Error("Normalize() expected error for bare summary claiming failed checks with no results field, got nil")
+		}
+	})
+
+	t.Run("bare summary with resource_count > 0 but no results field returns error", func(t *testing.T) {
+		_, _, err := checkovNormalizer{}.Normalize(stringsReader(`{"checkov_version": "3.2.0", "passed": 2, "failed": 0, "resource_count": 2}`))
+		if err == nil {
+			t.Error("Normalize() expected error for bare summary claiming resources scanned with no results field, got nil")
+		}
+	})
+
+	t.Run("case-variant duplicate top-level key is rejected", func(t *testing.T) {
+		input := `{"check_type":"terraform","results":{"passed_checks":[],"failed_checks":[]},"summary":{"passed":0,"failed":0,"skipped":0,"parsing_errors":0,"resource_count":0},"Summary":{}}`
+		_, _, err := checkovNormalizer{}.Normalize(stringsReader(input))
+		if err == nil {
+			t.Error("Normalize() expected error for case-variant duplicate top-level key, got nil")
+		}
+	})
+
+	t.Run("empty multi-framework array is rejected as ambiguous", func(t *testing.T) {
+		_, _, err := checkovNormalizer{}.Normalize(stringsReader(`[]`))
+		if err == nil {
+			t.Error("Normalize() expected error for empty multi-framework array, got nil")
 		}
 	})
 

@@ -184,15 +184,19 @@ func TestFullPipelineCriticalFinding(t *testing.T) {
 	if decision.Allow {
 		t.Error("Allow=true, want false for critical finding")
 	}
+	// The default fail_on_severity is "high", so a critical finding is
+	// caught by the generic "at or above" wording rather than the
+	// critical-specific wording (which only applies when fail_on_severity
+	// is explicitly set to "critical").
 	found := false
 	for _, r := range decision.Reasons {
-		if containsSubstr(r, "critical") {
+		if containsSubstr(r, "at or above") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("reasons %v do not mention 'critical'", decision.Reasons)
+		t.Errorf("reasons %v do not mention the blocking severity threshold", decision.Reasons)
 	}
 }
 

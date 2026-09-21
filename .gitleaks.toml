@@ -16,8 +16,32 @@ title = "devsecops-attestation gitleaks config"
 useDefault = true
 
 [allowlist]
+# AND, not the default OR: both the path AND the regex must match for a
+# finding to be exempted. Without this, gitleaks treats "paths" and
+# "regexes" in the same [allowlist] block as independent alternatives, so
+# the fake-token regex alone would exempt that token anywhere in the repo,
+# defeating the point of anchoring to specific paths. Verified empirically
+# against the gitleaks binary this repository's workflow pins (8.21.2): the
+# same secret value placed outside the two allowlisted paths is still
+# flagged once condition = "AND" is set.
+condition = "AND"
 description = "Fake secrets used as pkg/normalize test fixtures, not real credentials"
+# Anchored to the exact two files that carry these fixture values, not to
+# the whole testdata/ tree or every _test.go file in the package: a
+# genuine secret accidentally added to any other file (a new test fixture,
+# a different testdata subdirectory, or any other _test.go file in this
+# package) must still be detected, not swept under a broad allowlist.
 paths = [
-  '''pkg/normalize/testdata/.*''',
-  '''pkg/normalize/.*_test\.go''',
+  '''^pkg/normalize/testdata/gitleaks/findings\.json$''',
+  '''^pkg/normalize/gitleaks_test\.go$''',
+]
+# Belt-and-suspenders: even within the two allowlisted files above, only
+# the specific known-fake token values are exempted, via the "match"
+# condition (regexTarget = "match" checks the matched secret string, not
+# the surrounding line). A different, genuine secret added to either file
+# alongside these fixtures is still detected.
+regexTarget = "match"
+regexes = [
+  '''AKIAIOSFODNN7EXAMPLE''',
+  '''sk_live_51H8qYt0000000000000000''',
 ]

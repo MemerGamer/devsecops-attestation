@@ -7,11 +7,13 @@
 #
 # Default semantics (used when no data.config overrides are supplied):
 #   - Required checks: sast, sca, config, secret
-#   - Blocking severity threshold: critical (findings at or above this
+#   - Blocking severity threshold: high (findings at or above this
 #     severity block deployment)
 #   - Zero-tolerance check types: secret (any finding of any severity on
 #     these check types blocks deployment, regardless of fail_on_severity)
 #   - No attestation with result.passed == false
+#   - No attestation whose check_type is outside required_checks (the chain
+#     is sealed against undeclared check types, see undeclared_check_types)
 #   - signer_public_key_hex must match input.authorized_signers[check_type]
 #     when an entry is configured for that check type
 #
@@ -118,11 +120,11 @@ required_checks := {c | some c in data.config.required_checks} if {
 }
 
 # fail_on_severity is the minimum severity (inclusive) that blocks
-# deployment. Falls back to "critical" when data.config.fail_on_severity is
+# deployment. Falls back to "high" when data.config.fail_on_severity is
 # absent. This mirrors the raw override value (even when invalid) so
 # deny_reasons can report exactly what was configured; blocking_threshold
 # below is the fail-closed value actually used for comparisons.
-default fail_on_severity := "critical"
+default fail_on_severity := "high"
 
 fail_on_severity := data.config.fail_on_severity if {
 	data.config.fail_on_severity
@@ -140,6 +142,15 @@ zero_tolerance_checks := {c | some c in data.config.zero_tolerance_checks} if {
 }
 
 ran_checks := {r.result.check_type | some r in input.attestations}
+
+# undeclared_check_types is the set of check types that appear in the
+# attestation chain but are not in required_checks. The chain is sealed
+# against this set: an attacker who truncates a signed, verified chain
+# cannot substitute an undeclared check type for a required one, because
+# every check type present must be declared. Operators who add a custom
+# check type must add it to required_checks as well, or attestations of
+# that type are rejected.
+undeclared_check_types := ran_checks - required_checks
 
 # blocking_threshold always resolves to a defined severity rank, even when
 # fail_on_severity is invalid, so the severity comparison below is never
@@ -197,6 +208,9 @@ allow if {
 	missing := required_checks - ran_checks
 	count(missing) == 0
 
+	# No attestation carries a check type outside the declared set
+	count(undeclared_check_types) == 0
+
 	# No findings at or above the blocking severity threshold
 	count(blocking_findings) == 0
 
@@ -231,13 +245,19 @@ deny_reasons contains msg if {
 }
 
 deny_reasons contains msg if {
+	count(undeclared_check_types) > 0
+	msg := sprintf("undeclared check types: %v", [undeclared_check_types])
+}
+
+deny_reasons contains msg if {
 	missing := required_checks - ran_checks
 	count(missing) > 0
 	msg := sprintf("missing required checks: %v", [missing])
 }
 
 # Preserve the original "critical finding(s)" wording when the blocking
-# threshold is the default "critical" severity.
+# threshold is explicitly configured to the "critical" severity (no longer
+# the default, but still a supported value).
 deny_reasons contains msg if {
 	fail_on_severity_ok
 	fail_on_severity == "critical"

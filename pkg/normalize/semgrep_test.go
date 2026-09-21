@@ -1,6 +1,7 @@
 package normalize
 
 import (
+	"fmt"
 	"os"
 	"testing"
 )
@@ -223,6 +224,39 @@ func TestSemgrepNormalizer_MissingLevelTreatedAsBlocking(t *testing.T) {
 	_, _, err := semgrepNormalizer{}.Normalize(stringsReader(bad))
 	if err == nil {
 		t.Error("Normalize() expected error for error entry with no level (fail-closed), got nil")
+	}
+}
+
+// TestSemgrepNormalizer_ErrorLevelAllowlist locks in the fail-closed
+// allowlist: only "warn", "warning", and "info" are non-blocking. Every
+// other level - including ones that sound more severe than "error", like
+// "fatal" or "critical", and any unrecognized value - blocks, rather than
+// only "error" blocking and everything else passing through.
+func TestSemgrepNormalizer_ErrorLevelAllowlist(t *testing.T) {
+	nonBlocking := []string{"warn", "warning", "info", "WARN", "Info"}
+	for _, level := range nonBlocking {
+		input := fmt.Sprintf(`{"results":[],"errors":[{"level":%q,"message":"m"}]}`, level)
+		_, _, err := semgrepNormalizer{}.Normalize(stringsReader(input))
+		if err != nil {
+			t.Errorf("level %q: unexpected error = %v, want nil (non-blocking)", level, err)
+		}
+	}
+
+	blocking := []string{"error", "fatal", "critical", "unknown-level", ""}
+	for _, level := range blocking {
+		input := fmt.Sprintf(`{"results":[],"errors":[{"level":%q,"message":"m"}]}`, level)
+		_, _, err := semgrepNormalizer{}.Normalize(stringsReader(input))
+		if err == nil {
+			t.Errorf("level %q: expected error (fail-closed, blocking), got nil", level)
+		}
+	}
+}
+
+func TestSemgrepNormalizer_DuplicateCaseVariantKeyRejected(t *testing.T) {
+	input := `{"results":[],"RESULTS":[{"check_id":"x"}]}`
+	_, _, err := semgrepNormalizer{}.Normalize(stringsReader(input))
+	if err == nil {
+		t.Error("Normalize() expected error for case-variant duplicate top-level key, got nil")
 	}
 }
 

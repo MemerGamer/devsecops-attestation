@@ -59,6 +59,8 @@ type evaluateFlags struct {
 	failOnSeverity      string
 	zeroToleranceChecks string
 	dataFile            string
+	targetRef           string
+	subject             string
 }
 
 // validSeverities are the severity levels accepted by --fail-on-severity,
@@ -95,6 +97,8 @@ func init() {
 	evaluateCmd.Flags().StringVar(&evalFlags.failOnSeverity, "fail-on-severity", "", "minimum finding severity that blocks deployment: info, low, medium, high, or critical (overrides data.config.fail_on_severity)")
 	evaluateCmd.Flags().StringVar(&evalFlags.zeroToleranceChecks, "zero-tolerance-checks", "", "comma-separated check types with zero finding tolerance, e.g. secret (overrides data.config.zero_tolerance_checks)")
 	evaluateCmd.Flags().StringVar(&evalFlags.dataFile, "data", "", "path to a JSON file whose object becomes data.config for policy evaluation; --required-checks, --fail-on-severity, and --zero-tolerance-checks override its keys")
+	evaluateCmd.Flags().StringVar(&evalFlags.targetRef, "target-ref", "", "commit or artifact digest that every attestation's result.target_ref must equal (commit binding); empty disables the check")
+	evaluateCmd.Flags().StringVar(&evalFlags.subject, "subject", "", "subject name that every attestation's subject.name must equal; empty disables the check")
 
 	evaluateCmd.MarkFlagRequired("chain")
 
@@ -201,7 +205,7 @@ func runConfigHash(f configHashFlags) error {
 // parameters the policy reads, not only the ones a caller happened to pass.
 var (
 	defaultRequiredChecks      = []string{"config", "sast", "sca", "secret"}
-	defaultFailOnSeverity      = "critical"
+	defaultFailOnSeverity      = "high"
 	defaultZeroToleranceChecks = []string{"secret"}
 )
 
@@ -330,6 +334,39 @@ func runEvaluate(ctx context.Context, f evaluateFlags) error {
 			fmt.Fprintf(os.Stderr, "authorized signer verification failed: %v\n", err)
 			osExit(1)
 			return nil
+		}
+	}
+
+	// Commit binding: when --target-ref is given, every attestation's
+	// result.target_ref must equal it exactly. VerifyChainWithOptions above
+	// already rejects a chain whose attestations disagree with each other on
+	// target_ref, but that alone does not stop an attacker from replaying an
+	// internally-consistent chain that was produced against a different
+	// commit than the one about to be deployed. Binding to the caller's
+	// expected ref closes that gap. Enforced in Go, after signer
+	// authorization and before policy evaluation, so an unbound or
+	// mis-bound chain never reaches OPA.
+	if f.targetRef != "" {
+		for i, a := range chain {
+			if a.Result.TargetRef != f.targetRef {
+				fmt.Fprintf(os.Stderr, "target ref mismatch for attestation %d (%s, check_type=%s): got %q, want %q\n",
+					i, a.ID, a.Result.CheckType, a.Result.TargetRef, f.targetRef)
+				osExit(1)
+				return nil
+			}
+		}
+	}
+
+	// Subject binding: when --subject is given, every attestation's
+	// subject.name must equal it exactly.
+	if f.subject != "" {
+		for i, a := range chain {
+			if a.Subject.Name != f.subject {
+				fmt.Fprintf(os.Stderr, "subject mismatch for attestation %d (%s, check_type=%s): got %q, want %q\n",
+					i, a.ID, a.Result.CheckType, a.Subject.Name, f.subject)
+				osExit(1)
+				return nil
+			}
 		}
 	}
 

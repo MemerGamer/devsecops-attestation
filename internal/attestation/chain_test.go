@@ -439,6 +439,42 @@ func TestVerifyChain(t *testing.T) {
 		}
 	})
 
+	t.Run("mixed target refs fail target-ref consistency check", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		resultA := makeResult(types.CheckSAST, true)
+		resultA.TargetRef = "commit-a"
+		resultB := makeResult(types.CheckSCA, true)
+		resultB.TargetRef = "commit-b"
+
+		c := NewChain()
+		c.Add(makeSubject("app"), resultA, kp) //nolint
+		c.Add(makeSubject("app"), resultB, kp) //nolint
+
+		results, err := VerifyChain(c.Attestations())
+		if err == nil {
+			t.Error("VerifyChain() expected error for mixed target refs, got nil")
+		}
+		if !strings.Contains(err.Error(), "target ref mismatch") {
+			t.Errorf("error = %v, want mention of target ref mismatch", err)
+		}
+		if results[1].ChainValid {
+			t.Error("results[1].ChainValid should be false for target ref mismatch")
+		}
+	})
+
+	t.Run("consistent target refs pass target-ref check", func(t *testing.T) {
+		kp := makeKeyPair(t)
+		c := NewChain()
+		c.Add(makeSubject("app"), makeResult(types.CheckSAST, true), kp)   //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckSCA, true), kp)    //nolint
+		c.Add(makeSubject("app"), makeResult(types.CheckConfig, true), kp) //nolint
+
+		_, err := VerifyChain(c.Attestations())
+		if err != nil {
+			t.Errorf("VerifyChain() unexpected error for consistent target refs: %v", err)
+		}
+	})
+
 	t.Run("custom check type outside the four built-in constants verifies", func(t *testing.T) {
 		kp := makeKeyPair(t)
 		c := NewChain()
