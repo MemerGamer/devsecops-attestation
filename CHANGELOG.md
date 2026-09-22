@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.4.1](https://github.com/MemerGamer/devsecops-attestation/compare/v0.4.0...v0.4.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* default verify-signature to true and drop bash-4-only syntax ([1ac5609](https://github.com/MemerGamer/devsecops-attestation/commit/1ac560902f421316ccf6d2938e9e12e524d33dd2))
+* retry transient curl failures in setup action downloads ([bd6a085](https://github.com/MemerGamer/devsecops-attestation/commit/bd6a085ea21806e1ff3a0a48d0e80b896c17403b))
+* simplify setup.sh curl retries and fail closed on bad verify-signature ([8f00605](https://github.com/MemerGamer/devsecops-attestation/commit/8f006054d89133b1638f6fc6ba8ab15ec6654d07))
+
+
+### CI/CD
+
+* build releases with the latest 1.26.x Go patch, not go.mod's pinned floor ([4a9e816](https://github.com/MemerGamer/devsecops-attestation/commit/4a9e81693f740b99a82bd1b0e5e5e4dc9c22744d))
+* pin release toolchain to go1.26.8 and stop drifting CI ahead of it ([b1401aa](https://github.com/MemerGamer/devsecops-attestation/commit/b1401aab103498a521b838a467946c2257f59549))
+* remove duplicate actions/cache Go steps in favor of setup-go's built-in cache ([ffb2bdf](https://github.com/MemerGamer/devsecops-attestation/commit/ffb2bdf9a0785ca772e717d99b3cfd68441b68c2))
+* retry trivy and gitleaks release downloads on transient failures ([906d326](https://github.com/MemerGamer/devsecops-attestation/commit/906d326581a68018cc8a3bc0f230be4e8080d1c4))
+
+
+### Documentation
+
+* align normalize-sign fail-on description with actual blocking behavior ([f0b6d1a](https://github.com/MemerGamer/devsecops-attestation/commit/f0b6d1a0580f1c31746b9b6cc2925f7a7b96f9c3))
+* clarify signing key source precedence is mutual exclusion, not priority ([867d5d4](https://github.com/MemerGamer/devsecops-attestation/commit/867d5d45c53b318dd2ec8fd6d14e030e5973e324))
+* correct where the Go toolchain pin's download/verify actually happens ([a9bc277](https://github.com/MemerGamer/devsecops-attestation/commit/a9bc277ff22d9afa235e662716576b17641d4a5a))
+* document commit binding, signing key sources, cosign identity, and undeclared check types ([8b3cc72](https://github.com/MemerGamer/devsecops-attestation/commit/8b3cc7263c7cc8ec73853a21a9aaa3c07cbf130b))
+* order commit/subject binding before log entry check in gate docs ([d2325eb](https://github.com/MemerGamer/devsecops-attestation/commit/d2325eb1efed1160a6cba2fee9a624c43b9ac984))
+
+
+### Tests
+
+* gate key_sizes.csv regeneration behind WRITE_BENCH_RESULTS=1 ([b4e41d9](https://github.com/MemerGamer/devsecops-attestation/commit/b4e41d93822870095330f47cd62a816cac2fa165))
+
 ## [0.4.0](https://github.com/MemerGamer/devsecops-attestation/compare/v0.3.2...v0.4.0) (2026-09-21)
 
 
