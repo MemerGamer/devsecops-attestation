@@ -34,6 +34,9 @@ go.work.sum
 # Built binaries
 /bin/
 
+# GoReleaser build output
+/dist/
+
 # Key material -- never commit private keys
 keys/
 *.hex

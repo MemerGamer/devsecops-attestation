@@ -16,121 +16,54 @@ import (
 	"os"
 
 	"github.com/open-policy-agent/opa/rego"
+	"github.com/open-policy-agent/opa/storage/inmem"
 
 	"github.com/MemerGamer/devsecops-attestation/pkg/types"
+	"github.com/MemerGamer/devsecops-attestation/policies"
 )
 
-// DefaultPolicy is a starter Rego policy.
-// In production, load this from a file or a policy server.
-const DefaultPolicy = `
-package devsecops.gate
-
-import future.keywords.if
-import future.keywords.in
-
-default allow := false
-
-# Allow deployment only when ALL of the following are true:
-#   1. All required check types were run (sast, sca, config, secret)
-#   2. No critical findings exist
-#   3. No secret-scan findings exist (zero tolerance regardless of severity)
-#   4. All checks passed
-#   5. Each check type with a configured authorized signer was signed by that key
-
-required_checks := {"sast", "sca", "config", "secret"}
-
-ran_checks := {r.result.check_type | r := input.attestations[_]}
-
-allow if {
-    # All required checks ran
-    missing := required_checks - ran_checks
-    count(missing) == 0
-
-    # No critical findings
-    count([f |
-        a := input.attestations[_]
-        f := a.result.findings[_]
-        f.severity == "critical"
-    ]) == 0
-
-    # Zero tolerance for hardcoded credentials: any secret-scan finding
-    # blocks deployment regardless of its reported severity.
-    count([f |
-        a := input.attestations[_]
-        a.result.check_type == "secret"
-        f := a.result.findings[_]
-    ]) == 0
-
-    # All checks passed
-    failed := [a | a := input.attestations[_]; a.result.passed == false]
-    count(failed) == 0
-
-    # No attestations use an unauthorized signer (skipped when authorized_signers is empty)
-    count([a |
-        a := input.attestations[_]
-        authorized := input.authorized_signers[a.result.check_type]
-        a.signer_public_key_hex != authorized
-    ]) == 0
-}
-
-# Collect reasons for denial (useful for human-readable output)
-deny_reasons[msg] if {
-    missing := required_checks - ran_checks
-    count(missing) > 0
-    msg := sprintf("missing required checks: %v", [missing])
-}
-
-deny_reasons[msg] if {
-    findings := [f |
-        a := input.attestations[_]
-        f := a.result.findings[_]
-        f.severity == "critical"
-    ]
-    count(findings) > 0
-    msg := sprintf("found %d critical finding(s)", [count(findings)])
-}
-
-deny_reasons[msg] if {
-    findings := [f |
-        a := input.attestations[_]
-        a.result.check_type == "secret"
-        f := a.result.findings[_]
-    ]
-    count(findings) > 0
-    msg := sprintf("found %d hardcoded credential finding(s)", [count(findings)])
-}
-
-deny_reasons[msg] if {
-    failed := [a.result.check_type | a := input.attestations[_]; a.result.passed == false]
-    count(failed) > 0
-    msg := sprintf("failed checks: %v", [failed])
-}
-
-deny_reasons[msg] if {
-    a := input.attestations[_]
-    authorized := input.authorized_signers[a.result.check_type]
-    a.signer_public_key_hex != authorized
-    msg := sprintf("unauthorized signer for check type %q: key does not match authorized signer", [a.result.check_type])
-}
-`
+// DefaultPolicy is the canonical, parameterizable deploy gate policy.
+// It is the single source of truth: policies/deploy.rego at the repository
+// root, embedded at build time so the gate binary carries a working policy
+// without any external file. Other repositories that vendor this module
+// reuse this policy, or point --policy at their own copy of the same file.
+var DefaultPolicy = policies.Deploy
 
 // Evaluator wraps an OPA query for deployment gate decisions.
 type Evaluator struct {
-	policy string // Rego source
+	policy string         // Rego source
+	data   map[string]any // optional data.config document
+}
+
+// EvaluatorOption configures an Evaluator at construction time.
+type EvaluatorOption func(*Evaluator)
+
+// WithData sets the object loaded into the OPA data document under "config".
+// Policies read parameters such as required_checks, fail_on_severity, and
+// zero_tolerance_checks from data.config; passing nil (or omitting this
+// option) leaves data.config undefined so the policy's own defaults apply.
+func WithData(data map[string]any) EvaluatorOption {
+	return func(e *Evaluator) {
+		e.data = data
+	}
 }
 
 // NewEvaluator creates an Evaluator using the provided Rego policy source.
 // Pass an empty string to use the built-in DefaultPolicy.
-func NewEvaluator(policySource string) *Evaluator {
+func NewEvaluator(policySource string, opts ...EvaluatorOption) *Evaluator {
 	if policySource == "" {
 		policySource = DefaultPolicy
 	}
-	return &Evaluator{policy: policySource}
+	e := &Evaluator{policy: policySource}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // EvaluateFromFile loads a Rego policy from policyPath before evaluating.
 // Pass an empty string to use DefaultPolicy.
-func EvaluateFromFile(ctx context.Context, policyPath string, input types.PolicyInput) (*types.GateDecision, error) {
+func EvaluateFromFile(ctx context.Context, policyPath string, input types.PolicyInput, opts ...EvaluatorOption) (*types.GateDecision, error) {
 	policySource := ""
 	if policyPath != "" {
 		b, err := os.ReadFile(policyPath)
@@ -139,23 +72,25 @@ func EvaluateFromFile(ctx context.Context, policyPath string, input types.Policy
 		}
 		policySource = string(b)
 	}
-	return NewEvaluator(policySource).Evaluate(ctx, input)
+	return NewEvaluator(policySource, opts...).Evaluate(ctx, input)
 }
 
 // Evaluate runs the policy against the provided attestation chain.
 // The attestations must already be verified (signatures + chain) before calling this.
 func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*types.GateDecision, error) {
-	// Build the OPA query.
-	allowQuery := rego.New(
-		rego.Query("data.devsecops.gate.allow"),
+	// Build the OPA query. When e.data is set, it is loaded into the OPA
+	// store under "config" so the policy can read data.config.* overrides.
+	regoOpts := []func(*rego.Rego){
 		rego.Module("policy.rego", e.policy),
 		rego.Input(toMap(input)),
-	)
-	denyQuery := rego.New(
-		rego.Query("data.devsecops.gate.deny_reasons"),
-		rego.Module("policy.rego", e.policy),
-		rego.Input(toMap(input)),
-	)
+	}
+	if e.data != nil {
+		store := inmem.NewFromObject(map[string]any{"config": e.data})
+		regoOpts = append(regoOpts, rego.Store(store))
+	}
+
+	allowQuery := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.allow")}, regoOpts...)...)
+	denyQuery := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.deny_reasons")}, regoOpts...)...)
 
 	// Evaluate allow.
 	allowRS, err := allowQuery.Eval(ctx)

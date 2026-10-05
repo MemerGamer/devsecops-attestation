@@ -27,9 +27,14 @@ type keygenFlags struct {
 
 var flags keygenFlags
 
+// version identifies the build of the keygen binary. It is overridden at
+// build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "keygen",
-	Short: "Generate an Ed25519 key pair for signing attestations",
+	Use:     "keygen",
+	Short:   "Generate an Ed25519 key pair for signing attestations",
+	Version: version,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runKeygen(flags)
 	},

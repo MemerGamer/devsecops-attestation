@@ -13,8 +13,8 @@ import (
 	"github.com/MemerGamer/devsecops-attestation/pkg/types"
 )
 
-// loadDeployRego returns the source of .github/policies/deploy.rego from the
-// repo root.  The test runs from internal/policy/, so we walk up two dirs.
+// loadDeployRego returns the source of policies/deploy.rego from the repo
+// root. The test runs from internal/policy/, so we walk up two dirs.
 func loadDeployRego(tb testing.TB) string {
 	tb.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -23,7 +23,7 @@ func loadDeployRego(tb testing.TB) string {
 	}
 	// thisFile is internal/policy/evaluator_bench_test.go; go up two levels.
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
-	policyPath := filepath.Join(repoRoot, ".github", "policies", "deploy.rego")
+	policyPath := filepath.Join(repoRoot, "policies", "deploy.rego")
 	b, err := os.ReadFile(policyPath)
 	if err != nil {
 		tb.Fatalf("reading deploy.rego (%s): %v", policyPath, err)
@@ -34,7 +34,7 @@ func loadDeployRego(tb testing.TB) string {
 // buildBenchPolicyInput builds a PolicyInput with n attestations.
 // Each attestation uses a unique synthetic check-type ("check-0", "check-1", …)
 // so the deploy.rego "missing required checks" rule fires (the policy expects
-// "sast", "sca", "config", "secret") — the benchmark measures evaluation
+// "sast", "sca", "config", "secret") - the benchmark measures evaluation
 // latency rather than the allow/deny outcome, so this is fine.
 //
 // For completeness the first four attestations always use the standard
@@ -75,7 +75,7 @@ func buildBenchPolicyInput(n int) types.PolicyInput {
 				Findings:    []types.Finding{},
 				Passed:      true,
 			},
-			Timestamp:      now,
+			Timestamp:       now,
 			SignerPublicKey: []byte{},
 		}
 	}

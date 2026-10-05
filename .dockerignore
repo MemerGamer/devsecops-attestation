@@ -1,0 +1,32 @@
+# Version control and CI metadata
+.git
+.github
+
+# Key material and pipeline artifacts -- never bake into an image
+keys/
+*.hex
+chain.json
+attestation-chain.json
+gate-decision.json
+results/
+
+# Build and release outputs
+bin/
+dist/
+
+# Test and coverage artifacts
+coverage.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Benchmark results (large, not needed for build)
+benchmarks/results/
+
+# Editor/IDE
+.idea/
+.vscode/
+.claude/
+
+# Local env files
+.env

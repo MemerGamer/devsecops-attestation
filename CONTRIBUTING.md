@@ -5,6 +5,31 @@
 - Go 1.26 or later
 - `jq` (for local pipeline testing)
 
+## Go toolchain pin
+
+`go.mod` carries both a `go 1.26.0` directive (the minimum language version)
+and a `toolchain go1.26.8` directive (the exact patch used to build signed
+releases; see `.github/workflows/release-please.yml`). This keeps release
+builds reproducible: the same exact patch is used on every build, rather
+than drifting to whatever `1.26.x` happens to be newest at release time.
+
+In CI, `actions/setup-go` reads this `toolchain` line from `go.mod` and
+installs that exact version from the runner's tool cache (or the
+`actions/go-versions` manifest), setting `GOTOOLCHAIN=local` - so the `go`
+command itself never downloads or verifies a toolchain in CI. The
+sum.golang.org-verified toolchain download only happens for local builds
+run with `GOTOOLCHAIN=auto` against an older installed Go, where the `go`
+command fetches and checksum-verifies the pinned toolchain on its own. The
+pin's value is reproducibility (an exact, reviewed patch) and a controlled
+bump path, not an in-CI download/verify step.
+
+It is not confirmed whether Dependabot's `gomod` updates bump the
+`toolchain` line on its own (it manages `require` entries reliably; the
+`toolchain` directive is not a dependency in the usual sense). Treat a Go
+security release as a manual action item until this is verified: bump
+`toolchain go1.26.x` in `go.mod` to the latest patch, run `go mod tidy`,
+and open a `chore:` PR.
+
 ## Build
 
 ```shell
@@ -67,23 +92,81 @@ done
 go run ./cmd/gate evaluate \
   --chain /tmp/chain.json \
   --authorized-signers "sast=$(cat keys/sast/public.hex),sca=$(cat keys/sca/public.hex),config=$(cat keys/config/public.hex),secret=$(cat keys/secret/public.hex)" \
-  --policy .github/policies/deploy.rego \
-  --policy-hash "$(sha256sum .github/policies/deploy.rego | cut -d' ' -f1)" \
+  --policy policies/deploy.rego \
+  --policy-hash "$(sha256sum policies/deploy.rego | cut -d' ' -f1)" \
   --max-age 1h \
   --require-log-entries
 ```
 
 ## Updating the Deploy Policy
 
-If you modify `.github/policies/deploy.rego`, you must update the `--policy-hash`
+If you modify `policies/deploy.rego`, you must update the `--policy-hash`
 value in `.github/workflows/devsecops-pipeline.yml`:
 
 ```shell
-sha256sum .github/policies/deploy.rego
+go run ./cmd/gate policy-hash --policy policies/deploy.rego
 ```
 
 Paste the resulting hex string as the `--policy-hash` argument in the
 `Evaluate deploy gate` step.
+
+If the gate invocation also passes `--data`, `--required-checks`,
+`--fail-on-severity`, or `--zero-tolerance-checks` (a non-default policy
+configuration), `--config-hash` must be pinned alongside `--policy-hash`; see
+[SECURITY.md](SECURITY.md#policy-configuration-integrity-trust-boundary) for
+why. Compute it with `go run ./cmd/gate config-hash` using the same flags.
+
+## Adding a Scanner Adapter
+
+New tool integrations live in `pkg/normalize/`, one file per tool (e.g.
+`semgrep.go`). Follow the steps documented in
+[`pkg/normalize/doc.go`](pkg/normalize/doc.go):
+
+1. Define an unexported type implementing the `Normalizer` interface
+   (`Name`, `CheckType`, `Normalize`).
+2. Map the tool's native severity vocabulary onto the canonical `Severity`
+   scale (`info < low < medium < high < critical`). Follow the table in
+   [`docs/severity-mapping.md`](docs/severity-mapping.md) rather than
+   inventing a new mapping, and update that document (and the mirrored
+   summary in `pkg/normalize/severity.go`) when you add a tool.
+3. Register the adapter with `Register` in an `init()` function so it is
+   available via `Get` and `Names` (and therefore `attest tools`) as soon as
+   the package is imported.
+4. Require a schema marker unique to the tool's native report format and
+   reject input that lacks it. An adapter must fail closed on unrecognized
+   input rather than silently returning zero findings; see the "Schema
+   marker requirement" section of `docs/severity-mapping.md` for the
+   rationale and existing examples.
+5. Add fixture files under `pkg/normalize/testdata/<tool>/`: at minimum a
+   clean report with no findings, a findings report exercising every
+   severity the adapter maps, and a malformed report exercising the schema-
+   marker rejection path. Add a corresponding `<tool>_test.go` exercising
+   `Normalize` directly and through `Run`, including that `{}` and another
+   tool's fixture are both rejected.
+6. Match the project's overall coverage expectation (currently ~97%,
+   see [Test Coverage](CLAUDE.md#test-coverage) in CLAUDE.md): a new
+   adapter's happy path, severity mapping, schema-marker rejection, and (if
+   applicable) `ToolPassNormalizer` combination logic should all be covered.
+
+## Releasing
+
+Releases are driven by [release-please](https://github.com/googleapis/release-please):
+merging its release PR (generated automatically against `main` from
+conventional commits) tags a release and triggers the `publish` job in
+`.github/workflows/release-please.yml`, which runs GoReleaser to build the
+per-OS/arch archives, checksums, SBOMs, and a signed OCI image
+(`ghcr.io/memergamer/devsecops-attestation`, keyless-signed with cosign),
+and uploads them to the GitHub release release-please already created.
+
+To dry-run the release packaging locally without publishing or signing:
+
+```shell
+make snapshot
+```
+
+This runs `goreleaser release --snapshot --clean`, producing local archives
+and images under `dist/` for inspection. Validate `.goreleaser.yaml` itself
+with `goreleaser check`.
 
 ## Commit Conventions
 

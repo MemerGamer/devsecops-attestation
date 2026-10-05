@@ -1,0 +1,12 @@
+{
+  "version": "1.99.0",
+  "results": [],
+  "errors": [],
+  "paths": {
+    "scanned": [
+      "src/main.py",
+      "src/utils.py",
+      "src/config.py"
+    ]
+  }
+}

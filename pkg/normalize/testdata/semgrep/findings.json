@@ -1,0 +1,61 @@
+{
+  "version": "1.99.0",
+  "results": [
+    {
+      "check_id": "python.lang.security.audit.dangerous-subprocess-use.dangerous-subprocess-use",
+      "path": "src/runner.py",
+      "start": { "line": 42, "col": 5 },
+      "end": { "line": 42, "col": 38 },
+      "extra": {
+        "message": "Found user-controlled data passed to subprocess call. This can lead to command injection.\nReview the call site.",
+        "severity": "ERROR",
+        "metadata": {
+          "cwe": ["CWE-78: OS Command Injection"],
+          "owasp": ["A03:2021 - Injection"]
+        }
+      }
+    },
+    {
+      "check_id": "python.lang.best-practice.unused-import",
+      "path": "src/utils.py",
+      "start": { "line": 3, "col": 1 },
+      "end": { "line": 3, "col": 18 },
+      "extra": {
+        "message": "Unused import 'os'.",
+        "severity": "WARNING",
+        "metadata": {}
+      }
+    },
+    {
+      "check_id": "python.lang.correctness.useless-comparison",
+      "path": "src/config.py",
+      "start": { "line": 10, "col": 1 },
+      "end": { "line": 10, "col": 20 },
+      "extra": {
+        "message": "Comparison always evaluates to the same result.",
+        "severity": "INFO",
+        "metadata": {}
+      }
+    },
+    {
+      "check_id": "",
+      "path": "src/legacy.py",
+      "start": { "line": 7, "col": 1 },
+      "end": { "line": 7, "col": 9 },
+      "extra": {
+        "message": "Generic finding with no rule id.\nSecond line of detail ignored for the title.",
+        "severity": "WARNING",
+        "metadata": {}
+      }
+    }
+  ],
+  "errors": [],
+  "paths": {
+    "scanned": [
+      "src/runner.py",
+      "src/utils.py",
+      "src/config.py",
+      "src/main.py"
+    ]
+  }
+}

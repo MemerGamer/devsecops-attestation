@@ -1,0 +1,20 @@
+{
+  "passed": false,
+  "passed_count": 5,
+  "findings": [
+    {
+      "id": "FIND-001",
+      "severity": "low",
+      "title": "Minor informational finding",
+      "description": "Low severity issue for testing.",
+      "location": "src/app.go:10"
+    },
+    {
+      "id": "FIND-002",
+      "severity": "high",
+      "title": "Significant finding",
+      "description": "High severity issue for testing.",
+      "location": "src/app.go:42"
+    }
+  ]
+}

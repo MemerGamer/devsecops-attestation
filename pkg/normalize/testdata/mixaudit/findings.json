@@ -1,0 +1,81 @@
+{
+  "pass": false,
+  "vulnerabilities": [
+    {
+      "advisory": {
+        "id": "HSEC-2023-0001",
+        "package": "phoenix",
+        "title": "Denial of service in Plug.Parsers.MULTIPART",
+        "description": "A crafted multipart request can exhaust memory.",
+        "cve": "CVE-2023-12345",
+        "url": "https://hex.pm/hexsec/advisories/HSEC-2023-0001",
+        "first_patched_versions": ["1.6.15"],
+        "patched_versions": [">= 1.6.15"],
+        "vulnerable_version_ranges": ["< 1.6.15"],
+        "severity": "high"
+      },
+      "dependency": {
+        "package": "phoenix",
+        "version": "1.6.10",
+        "lockfile": "mix.lock"
+      }
+    },
+    {
+      "advisory": {
+        "id": "HSEC-2022-0007",
+        "package": "plug",
+        "title": "Unmaintained dependency",
+        "description": "This package is no longer maintained upstream.",
+        "cve": "",
+        "url": "https://hex.pm/hexsec/advisories/HSEC-2022-0007",
+        "first_patched_versions": [],
+        "patched_versions": [],
+        "vulnerable_version_ranges": ["< 0"],
+        "severity": "low"
+      },
+      "dependency": {
+        "package": "plug",
+        "version": "1.13.0",
+        "lockfile": "mix.lock"
+      }
+    },
+    {
+      "advisory": {
+        "id": "HSEC-2021-0003",
+        "package": "jason",
+        "title": "Advisory with no reported severity",
+        "description": "mix_audit did not populate a severity or CVSS field for this advisory.",
+        "cve": "",
+        "url": "https://hex.pm/hexsec/advisories/HSEC-2021-0003",
+        "first_patched_versions": ["1.3.0"],
+        "patched_versions": [">= 1.3.0"],
+        "vulnerable_version_ranges": ["< 1.3.0"]
+      },
+      "dependency": {
+        "package": "jason",
+        "version": "1.2.0",
+        "lockfile": "mix.lock"
+      }
+    },
+    {
+      "advisory": {
+        "id": "HSEC-2024-0002",
+        "package": "ecto",
+        "title": "SQL injection via unsanitized fragment",
+        "description": "A crafted query fragment can bypass parameterization.",
+        "cve": "CVE-2024-99999",
+        "url": "https://hex.pm/hexsec/advisories/HSEC-2024-0002",
+        "first_patched_versions": ["3.10.1"],
+        "patched_versions": [">= 3.10.1"],
+        "vulnerable_version_ranges": ["< 3.10.1"],
+        "severity": "medium",
+        "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "dependency": {
+        "package": "ecto",
+        "version": "3.10.0",
+        "lockfile": "mix.lock"
+      }
+    }
+  ]
+}

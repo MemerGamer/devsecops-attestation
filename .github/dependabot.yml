@@ -7,6 +7,16 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+      - "/actions/setup"
+      - "/actions/normalize-sign"
+      - "/actions/gate"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"

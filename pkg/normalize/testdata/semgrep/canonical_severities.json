@@ -1,0 +1,53 @@
+{
+  "version": "1.177.0",
+  "results": [
+    {
+      "check_id": "generic.secrets.security.detected-secret",
+      "path": "src/config.py",
+      "start": { "line": 1, "col": 1 },
+      "end": { "line": 1, "col": 9 },
+      "extra": {
+        "message": "Hardcoded secret detected.",
+        "severity": "CRITICAL",
+        "metadata": {}
+      }
+    },
+    {
+      "check_id": "python.lang.security.audit.dangerous-subprocess-use.dangerous-subprocess-use",
+      "path": "src/runner.py",
+      "start": { "line": 42, "col": 1 },
+      "end": { "line": 42, "col": 9 },
+      "extra": {
+        "message": "Dangerous subprocess use.",
+        "severity": "HIGH",
+        "metadata": {}
+      }
+    },
+    {
+      "check_id": "python.lang.best-practice.unused-import",
+      "path": "src/utils.py",
+      "start": { "line": 3, "col": 1 },
+      "end": { "line": 3, "col": 9 },
+      "extra": {
+        "message": "Unused import.",
+        "severity": "MEDIUM",
+        "metadata": {}
+      }
+    },
+    {
+      "check_id": "python.lang.correctness.useless-comparison",
+      "path": "src/config.py",
+      "start": { "line": 10, "col": 1 },
+      "end": { "line": 10, "col": 9 },
+      "extra": {
+        "message": "Useless comparison.",
+        "severity": "LOW",
+        "metadata": {}
+      }
+    }
+  ],
+  "errors": [],
+  "paths": {
+    "scanned": ["src/runner.py", "src/utils.py", "src/config.py"]
+  }
+}
