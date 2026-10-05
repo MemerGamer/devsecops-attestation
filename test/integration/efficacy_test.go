@@ -22,13 +22,14 @@ import (
 	"github.com/MemerGamer/devsecops-attestation/pkg/types"
 )
 
-// efficacyCSVPath is where results are appended.
-const efficacyCSVPath = "../../benchmarks/results/efficacy.csv"
-
 // initEfficacyCSV ensures the results directory exists and resets the CSV with
 // a fresh header at the start of each test run so results are not duplicated.
-func initEfficacyCSV(t *testing.T) {
+func initEfficacyCSV(t *testing.T) string {
 	t.Helper()
+	efficacyCSVPath := os.Getenv("EFFICACY_CSV")
+	if efficacyCSVPath == "" {
+		efficacyCSVPath = filepath.Join(t.TempDir(), "efficacy.csv")
+	}
 	dir := filepath.Dir(efficacyCSVPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("creating efficacy results dir: %v", err)
@@ -37,10 +38,11 @@ func initEfficacyCSV(t *testing.T) {
 	if err := os.WriteFile(efficacyCSVPath, []byte("attack_vector,simulated,detected,mechanism\n"), 0o644); err != nil {
 		t.Fatalf("writing efficacy CSV header: %v", err)
 	}
+	return efficacyCSVPath
 }
 
 // appendEfficacyRow appends one result row to the CSV.
-func appendEfficacyRow(t *testing.T, vector, simulated, detected, mechanism string) {
+func appendEfficacyRow(t *testing.T, efficacyCSVPath, vector, simulated, detected, mechanism string) {
 	t.Helper()
 	f, err := os.OpenFile(efficacyCSVPath, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -85,7 +87,7 @@ func policyAllowInput(chain []types.Attestation) types.PolicyInput {
 // Each subtest constructs a valid signed chain, applies the attack mutation, invokes
 // the appropriate verification / gate path, and asserts the attack is REJECTED.
 func TestSecurityEfficacyMatrix(t *testing.T) {
-	initEfficacyCSV(t)
+	efficacyCSVPath := initEfficacyCSV(t)
 
 	// ------------------------------------------------------------------ //
 	// Positive baseline: a clean 4-check chain must be ALLOWED.           //
@@ -114,7 +116,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		if !decision.Allow {
 			t.Errorf("positive baseline: Allow=false, reasons=%v", decision.Reasons)
 		}
-		appendEfficacyRow(t, "positive_clean_chain", "clean 4-check chain", "yes", "ALLOW – all checks present and valid")
+		appendEfficacyRow(t, efficacyCSVPath, "positive_clean_chain", "clean 4-check chain", "yes", "ALLOW – all checks present and valid")
 	})
 
 	// ------------------------------------------------------------------ //
@@ -141,7 +143,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		if !detected {
 			t.Error("result_forgery: VerifyChain should have detected signature failure")
 		}
-		appendEfficacyRow(t, "result_forgery", "flip Result.Passed after signing", "yes", "Ed25519 signature verification")
+		appendEfficacyRow(t, efficacyCSVPath, "result_forgery", "flip Result.Passed after signing", "yes", "Ed25519 signature verification")
 	})
 
 	// ------------------------------------------------------------------ //
@@ -200,7 +202,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		} else if !strings.Contains(err.Error(), "too old") {
 			t.Errorf("replay_stale: unexpected error message: %v", err)
 		}
-		appendEfficacyRow(t, "replay_stale", "timestamps 48h in the past with max-age=24h", "yes", "max-age window")
+		appendEfficacyRow(t, efficacyCSVPath, "replay_stale", "timestamps 48h in the past with max-age=24h", "yes", "max-age window")
 	})
 
 	// ------------------------------------------------------------------ //
@@ -266,7 +268,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		if !detected {
 			t.Error("wrong_type_signer: per-type signer authorization should have detected mismatch")
 		}
-		appendEfficacyRow(t, "wrong_type_signer", "SCA attestation signed with SAST key", "yes", "per-type signer authorization")
+		appendEfficacyRow(t, efficacyCSVPath, "wrong_type_signer", "SCA attestation signed with SAST key", "yes", "per-type signer authorization")
 	})
 
 	// ------------------------------------------------------------------ //
@@ -315,7 +317,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		// Also verify that using the gate CLI with pinned hash against swapped policy would fail.
 		// (In-process simulation of cmd/gate hash check logic.)
 		_ = chain
-		appendEfficacyRow(t, "policy_swap", "swapped policy.rego with different hash", "yes", "policy-hash pin (SHA-256)")
+		appendEfficacyRow(t, efficacyCSVPath, "policy_swap", "swapped policy.rego with different hash", "yes", "policy-hash pin (SHA-256)")
 	})
 
 	// ------------------------------------------------------------------ //
@@ -348,7 +350,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		if !detected {
 			t.Error("unauthorized_signer: signer verification should have detected unauthorized key")
 		}
-		appendEfficacyRow(t, "unauthorized_signer", "chain signed with key not in authorized set", "yes", "Ed25519 signer authorization")
+		appendEfficacyRow(t, efficacyCSVPath, "unauthorized_signer", "chain signed with key not in authorized set", "yes", "Ed25519 signer authorization")
 	})
 
 	// ------------------------------------------------------------------ //
@@ -388,7 +390,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		if !hasMissingReason {
 			t.Errorf("missing_required_check: reasons %v do not mention 'missing'", decision.Reasons)
 		}
-		appendEfficacyRow(t, "missing_required_check", "chain omits 'config' check type", "yes", "OPA missing_checks policy rule")
+		appendEfficacyRow(t, efficacyCSVPath, "missing_required_check", "chain omits 'config' check type", "yes", "OPA missing_checks policy rule")
 	})
 
 	// ------------------------------------------------------------------ //
@@ -440,7 +442,7 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 			t.Error("chain_reorder_or_duplicate: VerifyChain should have detected duplication")
 		}
 
-		appendEfficacyRow(t, "chain_reorder_or_duplicate", "swapped attestations[0] and [1]; also duplicate insertion", "yes", "chain linkage digest verification")
+		appendEfficacyRow(t, efficacyCSVPath, "chain_reorder_or_duplicate", "swapped attestations[0] and [1]; also duplicate insertion", "yes", "chain linkage digest verification")
 	})
 
 	// ------------------------------------------------------------------ //
@@ -502,6 +504,6 @@ func TestSecurityEfficacyMatrix(t *testing.T) {
 		if !detected {
 			t.Error("json_tampering: should have detected signature failure")
 		}
-		appendEfficacyRow(t, "json_tampering_detected_by_gate_cli", "raw JSON field flip (passed=true→false)", "yes", "Ed25519 signature verification")
+		appendEfficacyRow(t, efficacyCSVPath, "json_tampering_detected_by_gate_cli", "raw JSON field flip (passed=true→false)", "yes", "Ed25519 signature verification")
 	})
 }

@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -208,34 +207,16 @@ func BenchmarkVerify_RSA2048(b *testing.B) {
 	}
 }
 
-// TestEmitKeySizes records per-algorithm signature size and public-key size to
-// benchmarks/results/key_sizes.csv. It is a plain test (not a benchmark) so it
-// runs with "go test -run TestEmitKeySizes".
-//
-// It only writes the file when WRITE_BENCH_RESULTS=1 is set in the
-// environment. ECDSA-P256's ASN.1 DER signature encoding varies between 70
-// and 72 bytes run to run (a short r or s component omits its leading
-// padding byte), so an unconditional write makes plain "go test ./..." dirty
-// the tracked benchmarks/results/key_sizes.csv on every run without that
-// variance carrying any information the thesis evaluation needs beyond "DER
-// encoding is variable-length". See benchmarks/README.md for how to
-// regenerate the file when a real update is wanted.
+// TestEmitKeySizes records per-algorithm signature and public-key sizes.
+// Set KEY_SIZES_CSV to retain the CSV; otherwise it is removed after the test.
 func TestEmitKeySizes(t *testing.T) {
-	if os.Getenv("WRITE_BENCH_RESULTS") != "1" {
-		t.Skip("skipping key_sizes.csv regeneration; set WRITE_BENCH_RESULTS=1 to write it (see benchmarks/README.md)")
+	outPath := os.Getenv("KEY_SIZES_CSV")
+	if outPath == "" {
+		outPath = filepath.Join(t.TempDir(), "key_sizes.csv")
 	}
-
-	// Resolve the repo root: this test lives in internal/crypto/, so go up two directories.
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		t.Fatalf("creating key sizes results dir: %v", err)
 	}
-	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
-	outDir := filepath.Join(repoRoot, "benchmarks", "results")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		t.Fatalf("os.MkdirAll(%s): %v", outDir, err)
-	}
-	outPath := filepath.Join(outDir, "key_sizes.csv")
 	f, err := os.Create(outPath)
 	if err != nil {
 		t.Fatalf("os.Create(%s): %v", outPath, err)

@@ -30,10 +30,12 @@ Measurement artefacts for the MSc thesis evaluation (Chapter 5).
 ```bash
 cd /path/to/devsecops-attestation
 export PATH=/home/hunor/.local/go/bin:$PATH
-go test -tags integration -run TestSecurityEfficacyMatrix ./test/integration/ -v
+EFFICACY_CSV="$PWD/benchmarks/results/efficacy.csv" \
+  go test -tags integration -run '^TestSecurityEfficacyMatrix$' -count=1 ./test/integration/ -v
 ```
 
-Source: `test/integration/efficacy_test.go`
+Source: `test/integration/efficacy_test.go`. Without `EFFICACY_CSV`, the CSV is
+written into `t.TempDir()` and removed after the test.
 
 ### Local e2e timing harness (`results/e2e_local.csv`)
 
@@ -68,16 +70,76 @@ go test -bench=. -benchmem -count=5 ./internal/... ./pkg/... | tee benchmarks/re
 
 ### Key and signature sizes (`results/key_sizes.csv`)
 
-`TestEmitKeySizes` in `internal/crypto/signer_bench_test.go` only writes this file when
-`WRITE_BENCH_RESULTS=1` is set. Plain `go test ./...` (including CI) skips it, so the tracked
-CSV is never rewritten as a side effect of running the test suite: ECDSA-P256's ASN.1 DER
-signature encoding varies between 70 and 72 bytes run to run (a short `r` or `s` component omits
-its leading padding byte), which would otherwise dirty the tracked file on every run without
-carrying any information beyond "DER encoding is variable-length".
-
-To regenerate it deliberately:
+From the repository root, explicitly regenerate the archive:
 
 ```bash
-cd /path/to/devsecops-attestation
-WRITE_BENCH_RESULTS=1 go test -run TestEmitKeySizes ./internal/crypto/... -v
+KEY_SIZES_CSV="$PWD/benchmarks/results/key_sizes.csv" \
+  go test ./internal/crypto -run '^TestEmitKeySizes$' -count=1 -v
 ```
+
+Without `KEY_SIZES_CSV`, the CSV is written into `t.TempDir()` and removed after
+the test. The columns remain `algorithm,sig_bytes,pubkey_bytes`; ECDSA DER
+signature length can vary between runs. `-count=1` ensures regeneration runs
+instead of reusing cached test results.
+
+`aggregate.py` reads the archived CSVs by default. Set `KEY_SIZES_CSV` and/or
+`EFFICACY_CSV` when aggregating retained CSVs from other paths. It does not
+regenerate them. `run_local.sh` regenerates only `e2e_local.csv`; run the explicit
+commands above to regenerate key sizes and efficacy before aggregation.
+
+## Storage and policy size measurements
+
+Run the two size benchmarks with allocation reporting:
+
+```bash
+go test ./internal/attestation ./internal/policy -run '^$' \
+  -bench '^(BenchmarkStorageSizes|BenchmarkEvaluatePolicySize)$' \
+  -benchmem -benchtime=100ms -count=1
+```
+
+`BenchmarkStorageSizes` emits `storage_sizes.csv` into a temporary directory by
+default, removed at the end of the run. Set `STORAGE_SIZES_CSV` to retain it.
+To deliberately write the archive path:
+
+```bash
+STORAGE_SIZES_CSV="$PWD/benchmarks/results/storage_sizes.csv" \
+  go test ./internal/attestation -run '^$' -bench '^BenchmarkStorageSizes$' \
+  -benchmem -benchtime=100ms -count=1
+```
+
+The CSV records N, standalone first-attestation bytes, linked-attestation bytes,
+the sum of individual object sizes, compact chain-array bytes, and chain bytes
+per attestation. N is 1, 4, 16, 64, 256, or 1024. Serialization includes the real
+JSON fields, base64 signatures and public keys, signer ID, and log reference.
+The fixture uses fixed-width UUID-shaped IDs and synthetic unique check names,
+whole-second timestamps, fixed subject/commit strings, and no findings. It is a
+valid signed and linked Ed25519 chain. Findings and optional-field content can
+change real storage considerably; these numbers measure this fixture only.
+
+Sizes are obtained from production `SaveChain` output followed by `json.Compact`,
+with equality checked against `json.Marshal`. The timed loop measures compact
+JSON serialization without signing, verification, file IO, or CSV writing.
+Production `SaveChain` uses indented JSON, so its on-disk files are larger than
+this requested compact representation. Single objects omit array delimiters;
+chain size includes brackets, commas, and previous-digest linkage.
+
+`BenchmarkEvaluatePolicySize` keeps the same four passing attestations fixed
+across R = 1, 4, 16, 64, and 256. R=1 means the unchanged deploy.rego baseline;
+each larger policy adds R-1 contradictory, non-matching `deny_reasons` rules.
+The baseline already contains multiple rules, so `total_rules` reports actual
+OPA AST rule count, including defaults. R is a baseline-plus-added-rules scale,
+not a claim that deploy.rego has one rule. `TestPolicySizeEquivalent` checks rule
+counts and allow/deny decisions with sorted reasons across multiple scenarios.
+
+The benchmark calls the real `Evaluator.Evaluate`. That method converts input
+and independently parses, compiles, and evaluates the allow and deny queries on
+every call. Results therefore include compilation rather than isolating prepared
+query execution. OPA may simplify/index the contradictory rules, so they measure
+source growth without promising linear evaluation work. The existing
+`BenchmarkEvaluate` remains unchanged. These short runs are functional checks,
+not controlled measurements under the PhD repetition protocol.
+
+Tests and benchmarks write size and efficacy CSVs into temporary directories
+unless their output paths are explicitly configured. Plain `go test ./...`
+leaves the archived results unchanged. Integration tests require the
+`integration` build tag and are not included in the plain full-suite command.
