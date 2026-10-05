@@ -65,3 +65,62 @@ cd /path/to/devsecops-attestation
 export PATH=/home/hunor/.local/go/bin:$PATH
 go test -bench=. -benchmem -count=5 ./internal/... ./pkg/... | tee benchmarks/results/go-bench.txt
 ```
+
+## Storage and policy size measurements
+
+Run the two size benchmarks with allocation reporting:
+
+```bash
+go test ./internal/attestation ./internal/policy -run '^$' \
+  -bench '^(BenchmarkStorageSizes|BenchmarkEvaluatePolicySize)$' \
+  -benchmem -benchtime=100ms -count=1
+```
+
+`BenchmarkStorageSizes` emits `storage_sizes.csv` into a temporary directory by
+default, removed at the end of the run. Set `STORAGE_SIZES_CSV` to retain it.
+To deliberately write the archive path:
+
+```bash
+STORAGE_SIZES_CSV="$PWD/benchmarks/results/storage_sizes.csv" \
+  go test ./internal/attestation -run '^$' -bench '^BenchmarkStorageSizes$' \
+  -benchmem -benchtime=100ms -count=1
+```
+
+The CSV records N, standalone first-attestation bytes, linked-attestation bytes,
+the sum of individual object sizes, compact chain-array bytes, and chain bytes
+per attestation. N is 1, 4, 16, 64, 256, or 1024. Serialization includes the real
+JSON fields, base64 signatures and public keys, signer ID, and log reference.
+The fixture uses fixed-width UUID-shaped IDs and synthetic unique check names,
+whole-second timestamps, fixed subject/commit strings, and no findings. It is a
+valid signed and linked Ed25519 chain. Findings and optional-field content can
+change real storage considerably; these numbers measure this fixture only.
+
+Sizes are obtained from production `SaveChain` output followed by `json.Compact`,
+with equality checked against `json.Marshal`. The timed loop measures compact
+JSON serialization without signing, verification, file IO, or CSV writing.
+Production `SaveChain` uses indented JSON, so its on-disk files are larger than
+this requested compact representation. Single objects omit array delimiters;
+chain size includes brackets, commas, and previous-digest linkage.
+
+`BenchmarkEvaluatePolicySize` keeps the same four passing attestations fixed
+across R = 1, 4, 16, 64, and 256. R=1 means the unchanged deploy.rego baseline;
+each larger policy adds R-1 contradictory, non-matching `deny_reasons` rules.
+The baseline already contains multiple rules, so `total_rules` reports actual
+OPA AST rule count, including defaults. R is a baseline-plus-added-rules scale,
+not a claim that deploy.rego has one rule. `TestPolicySizeEquivalent` checks rule
+counts and allow/deny decisions with sorted reasons across multiple scenarios.
+
+The benchmark calls the real `Evaluator.Evaluate`. That method converts input
+and independently parses, compiles, and evaluates the allow and deny queries on
+every call. Results therefore include compilation rather than isolating prepared
+query execution. OPA may simplify/index the contradictory rules, so they measure
+source growth without promising linear evaluation work. The existing
+`BenchmarkEvaluate` remains unchanged. These short runs are functional checks,
+not controlled measurements under the PhD repetition protocol.
+
+On this main revision, the pre-existing `TestEmitKeySizes` unconditionally
+rewrites the archived `key_sizes.csv` during `go test ./...`, and ECDSA DER
+signature length can vary. Restore that unrelated artifact after a validation
+run. The new storage benchmark only writes an archive when its output path is
+explicitly configured. Integration tests require the `integration` build tag
+and are not included in the plain full-suite command.
