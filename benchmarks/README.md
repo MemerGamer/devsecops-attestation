@@ -30,10 +30,12 @@ Measurement artefacts for the MSc thesis evaluation (Chapter 5).
 ```bash
 cd /path/to/devsecops-attestation
 export PATH=/home/hunor/.local/go/bin:$PATH
-go test -tags integration -run TestSecurityEfficacyMatrix ./test/integration/ -v
+EFFICACY_CSV="$PWD/benchmarks/results/efficacy.csv" \
+  go test -tags integration -run '^TestSecurityEfficacyMatrix$' -count=1 ./test/integration/ -v
 ```
 
-Source: `test/integration/efficacy_test.go`
+Source: `test/integration/efficacy_test.go`. Without `EFFICACY_CSV`, the CSV is
+written into `t.TempDir()` and removed after the test.
 
 ### Local e2e timing harness (`results/e2e_local.csv`)
 
@@ -65,6 +67,25 @@ cd /path/to/devsecops-attestation
 export PATH=/home/hunor/.local/go/bin:$PATH
 go test -bench=. -benchmem -count=5 ./internal/... ./pkg/... | tee benchmarks/results/go-bench.txt
 ```
+
+### Key and signature sizes (`results/key_sizes.csv`)
+
+From the repository root, explicitly regenerate the archive:
+
+```bash
+KEY_SIZES_CSV="$PWD/benchmarks/results/key_sizes.csv" \
+  go test ./internal/crypto -run '^TestEmitKeySizes$' -count=1 -v
+```
+
+Without `KEY_SIZES_CSV`, the CSV is written into `t.TempDir()` and removed after
+the test. The columns remain `algorithm,sig_bytes,pubkey_bytes`; ECDSA DER
+signature length can vary between runs. `-count=1` ensures regeneration runs
+instead of reusing cached test results.
+
+`aggregate.py` reads the archived CSVs by default. Set `KEY_SIZES_CSV` and/or
+`EFFICACY_CSV` when aggregating retained CSVs from other paths. It does not
+regenerate them. `run_local.sh` regenerates only `e2e_local.csv`; run the explicit
+commands above to regenerate key sizes and efficacy before aggregation.
 
 ## Storage and policy size measurements
 
@@ -118,9 +139,7 @@ source growth without promising linear evaluation work. The existing
 `BenchmarkEvaluate` remains unchanged. These short runs are functional checks,
 not controlled measurements under the PhD repetition protocol.
 
-On this main revision, the pre-existing `TestEmitKeySizes` unconditionally
-rewrites the archived `key_sizes.csv` during `go test ./...`, and ECDSA DER
-signature length can vary. Restore that unrelated artifact after a validation
-run. The new storage benchmark only writes an archive when its output path is
-explicitly configured. Integration tests require the `integration` build tag
-and are not included in the plain full-suite command.
+Tests and benchmarks write size and efficacy CSVs into temporary directories
+unless their output paths are explicitly configured. Plain `go test ./...`
+leaves the archived results unchanged. Integration tests require the
+`integration` build tag and are not included in the plain full-suite command.

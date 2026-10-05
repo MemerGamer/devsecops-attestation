@@ -204,10 +204,10 @@ def main():
 
     # ---- Load inputs ----
     bench_data = parse_go_bench(os.path.join(RESULTS_DIR, "go-bench.txt"))
-    key_sizes = parse_key_sizes(os.path.join(RESULTS_DIR, "key_sizes.csv"))
+    key_sizes = parse_key_sizes(os.environ.get("KEY_SIZES_CSV") or os.path.join(RESULTS_DIR, "key_sizes.csv"))
     e2e_data = parse_e2e_local(os.path.join(RESULTS_DIR, "e2e_local.csv"))
     per_repo_job, per_run = parse_ci_runs(os.path.join(RESULTS_DIR, "ci_runs.csv"))
-    efficacy_rows = parse_efficacy(os.path.join(RESULTS_DIR, "efficacy.csv"))
+    efficacy_rows = parse_efficacy(os.environ.get("EFFICACY_CSV") or os.path.join(RESULTS_DIR, "efficacy.csv"))
 
     # ---- Aggregated Go benchmark stats ----
     bench_stats = {}

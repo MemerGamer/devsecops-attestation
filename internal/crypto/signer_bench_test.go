@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -208,21 +207,16 @@ func BenchmarkVerify_RSA2048(b *testing.B) {
 	}
 }
 
-// TestEmitKeySizes records per-algorithm signature size and public-key size to
-// benchmarks/results/key_sizes.csv. It is a plain test (not a benchmark) so it
-// runs with "go test -run TestEmitKeySizes".
+// TestEmitKeySizes records per-algorithm signature and public-key sizes.
+// Set KEY_SIZES_CSV to retain the CSV; otherwise it is removed after the test.
 func TestEmitKeySizes(t *testing.T) {
-	// Resolve the repo root: this test lives in internal/crypto/, so go up two directories.
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
+	outPath := os.Getenv("KEY_SIZES_CSV")
+	if outPath == "" {
+		outPath = filepath.Join(t.TempDir(), "key_sizes.csv")
 	}
-	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
-	outDir := filepath.Join(repoRoot, "benchmarks", "results")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		t.Fatalf("os.MkdirAll(%s): %v", outDir, err)
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		t.Fatalf("creating key sizes results dir: %v", err)
 	}
-	outPath := filepath.Join(outDir, "key_sizes.csv")
 	f, err := os.Create(outPath)
 	if err != nil {
 		t.Fatalf("os.Create(%s): %v", outPath, err)
