@@ -21,7 +21,7 @@ func sizedPolicy(source string, r int) string {
 	var out strings.Builder
 	out.WriteString(source)
 	for i := 1; i < r; i++ {
-		fmt.Fprintf(&out, "\ndeny_reasons[\"size-rule-%06d\"] if {\n input.subject.name == \"size-rule-%06d\"\n input.subject.name != \"size-rule-%06d\"\n}\n", i, i, i)
+		fmt.Fprintf(&out, "\ndeny_reasons contains \"size-rule-%06d\" if {\n input.subject.name == \"size-rule-%06d\"\n input.subject.name != \"size-rule-%06d\"\n}\n", i, i, i)
 	}
 	return out.String()
 }
