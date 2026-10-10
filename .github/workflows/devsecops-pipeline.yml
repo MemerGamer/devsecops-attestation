@@ -56,7 +56,7 @@ jobs:
           files: ./coverage.txt
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-${{ github.sha }}
           path: coverage.txt
@@ -97,7 +97,7 @@ jobs:
           semgrep scan --config auto --disable-nosem --json --output semgrep-raw.json .
           jq -e . semgrep-raw.json >/dev/null
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sast-raw
           path: semgrep-raw.json
@@ -135,7 +135,7 @@ jobs:
           trivy fs --format json --output trivy-raw.json --scanners vuln --exit-code 0 .
           jq -e . trivy-raw.json >/dev/null
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sca-raw
           path: trivy-raw.json
@@ -165,7 +165,7 @@ jobs:
           mv checkov-out/results_json.json checkov-raw.json
           jq -e . checkov-raw.json >/dev/null
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: config-raw
           path: checkov-raw.json
@@ -205,7 +205,7 @@ jobs:
           gitleaks detect --report-format json --report-path gitleaks-raw.json --exit-code 0
           jq -e . gitleaks-raw.json >/dev/null
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: secret-raw
           path: gitleaks-raw.json
@@ -340,7 +340,7 @@ jobs:
           output: gate-decision.json
           expect: allow
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: attestation-chain-${{ github.sha }}
@@ -378,7 +378,7 @@ jobs:
             release/gate
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-${{ github.sha }}
           path: release/
