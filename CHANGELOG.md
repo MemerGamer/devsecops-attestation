@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.2](https://github.com/MemerGamer/devsecops-attestation/compare/v0.4.1...v0.4.2) (2026-10-05)
+
+
+### Tests
+
+* never overwrite archived benchmark results ([6c3f4c6](https://github.com/MemerGamer/devsecops-attestation/commit/6c3f4c629fe7927854f945e2fd29ad45c77f476b))
+* policy-size padding rules use Rego v1 contains form ([0a0e460](https://github.com/MemerGamer/devsecops-attestation/commit/0a0e460848189794470193f99bf93a56bd9631c7))
+
 ## [0.4.1](https://github.com/MemerGamer/devsecops-attestation/compare/v0.4.0...v0.4.1) (2026-09-21)
 
 
