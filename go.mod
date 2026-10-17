@@ -6,7 +6,7 @@ toolchain go1.26.8
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/open-policy-agent/opa v1.21.1
+	github.com/open-policy-agent/opa v1.21.2
 	github.com/spf13/cobra v1.10.2
 )
 
