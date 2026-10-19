@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -981,4 +982,65 @@ func TestChainSealedAgainstUndeclaredCheckTruncation(t *testing.T) {
 			t.Errorf("reasons %v do not mention missing required checks", decision.Reasons)
 		}
 	})
+}
+
+// TestEvaluatorReuse checks that one Evaluator, whose policy is prepared once,
+// gives the same decisions as fresh evaluators when it is reused for different
+// inputs, sequentially and concurrently.
+func TestEvaluatorReuse(t *testing.T) {
+	ctx := context.Background()
+	allowInput := buildInput([]types.Attestation{
+		buildAttestation(types.CheckSAST, true, nil),
+		buildAttestation(types.CheckSCA, true, nil),
+		buildAttestation(types.CheckConfig, true, nil),
+		buildAttestation(types.CheckSecret, true, nil),
+	})
+	blockInput := buildInput([]types.Attestation{
+		buildAttestation(types.CheckSAST, true, []types.Finding{
+			{ID: "C1", Severity: types.SeverityCritical, Title: "critical issue"},
+		}),
+		buildAttestation(types.CheckSCA, true, nil),
+		buildAttestation(types.CheckConfig, true, nil),
+		buildAttestation(types.CheckSecret, true, nil),
+	})
+	e := policy.NewEvaluator("")
+	check := func(input types.PolicyInput, wantAllow bool) error {
+		got, err := e.Evaluate(ctx, input)
+		if err != nil {
+			return err
+		}
+		want, err := policy.NewEvaluator("").Evaluate(ctx, input)
+		if err != nil {
+			return err
+		}
+		if got.Allow != wantAllow || got.Allow != want.Allow ||
+			strings.Join(sortedReasons(got.Reasons), "|") != strings.Join(sortedReasons(want.Reasons), "|") {
+			t.Errorf("reused evaluator: allow=%v reasons=%v; fresh evaluator: allow=%v reasons=%v; want allow=%v",
+				got.Allow, got.Reasons, want.Allow, want.Reasons, wantAllow)
+		}
+		return nil
+	}
+	for i := 0; i < 3; i++ {
+		if err := check(allowInput, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := check(blockInput, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			input, want := allowInput, true
+			if i%2 == 1 {
+				input, want = blockInput, false
+			}
+			if err := check(input, want); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
 }

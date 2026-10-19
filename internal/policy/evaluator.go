@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/open-policy-agent/opa/rego"
 	"github.com/open-policy-agent/opa/storage/inmem"
@@ -30,15 +31,27 @@ import (
 var DefaultPolicy = policies.Deploy
 
 // Evaluator wraps an OPA query for deployment gate decisions.
+//
+// The policy is parsed and compiled once, on the first Evaluate call, and the
+// prepared queries are reused by every later call. An Evaluator is safe for
+// concurrent use.
 type Evaluator struct {
 	policy string         // Rego source
 	data   map[string]any // optional data.config document
+
+	once    sync.Once
+	allowQ  rego.PreparedEvalQuery
+	denyQ   rego.PreparedEvalQuery
+	prepErr error
 }
 
 // EvaluatorOption configures an Evaluator at construction time.
 type EvaluatorOption func(*Evaluator)
 
 // WithData sets the object loaded into the OPA data document under "config".
+// The document is copied when the policy is prepared (on the first Evaluate
+// call); later changes to the map have no effect. Create a new Evaluator to
+// change the configuration.
 // Policies read parameters such as required_checks, fail_on_severity, and
 // zero_tolerance_checks from data.config; passing nil (or omitting this
 // option) leaves data.config undefined so the policy's own defaults apply.
@@ -75,25 +88,44 @@ func EvaluateFromFile(ctx context.Context, policyPath string, input types.Policy
 	return NewEvaluator(policySource, opts...).Evaluate(ctx, input)
 }
 
-// Evaluate runs the policy against the provided attestation chain.
-// The attestations must already be verified (signatures + chain) before calling this.
-func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*types.GateDecision, error) {
-	// Build the OPA query. When e.data is set, it is loaded into the OPA
-	// store under "config" so the policy can read data.config.* overrides.
+// prepare parses and compiles the policy once for the allow and deny_reasons
+// queries. When e.data is set, it is loaded into the OPA store under "config"
+// so the policy can read data.config.* overrides. A background context is used
+// so that a cancelled first caller cannot leave a cached preparation error;
+// as a consequence, preparation itself is not interruptible.
+func (e *Evaluator) prepare() {
+	ctx := context.Background()
 	regoOpts := []func(*rego.Rego){
 		rego.Module("policy.rego", e.policy),
-		rego.Input(toMap(input)),
 	}
 	if e.data != nil {
 		store := inmem.NewFromObject(map[string]any{"config": e.data})
 		regoOpts = append(regoOpts, rego.Store(store))
 	}
+	allowQ, err := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.allow")}, regoOpts...)...).PrepareForEval(ctx)
+	if err != nil {
+		e.prepErr = fmt.Errorf("evaluating allow policy: %w", err)
+		return
+	}
+	denyQ, err := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.deny_reasons")}, regoOpts...)...).PrepareForEval(ctx)
+	if err != nil {
+		e.prepErr = fmt.Errorf("evaluating deny_reasons policy: %w", err)
+		return
+	}
+	e.allowQ, e.denyQ = allowQ, denyQ
+}
 
-	allowQuery := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.allow")}, regoOpts...)...)
-	denyQuery := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.deny_reasons")}, regoOpts...)...)
+// Evaluate runs the policy against the provided attestation chain.
+// The attestations must already be verified (signatures + chain) before calling this.
+func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*types.GateDecision, error) {
+	e.once.Do(e.prepare)
+	if e.prepErr != nil {
+		return nil, e.prepErr
+	}
+	evalInput := rego.EvalInput(toMap(input))
 
 	// Evaluate allow.
-	allowRS, err := allowQuery.Eval(ctx)
+	allowRS, err := e.allowQ.Eval(ctx, evalInput)
 	if err != nil {
 		return nil, fmt.Errorf("evaluating allow policy: %w", err)
 	}
@@ -103,7 +135,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*typ
 	}
 
 	// Evaluate deny reasons.
-	denyRS, err := denyQuery.Eval(ctx)
+	denyRS, err := e.denyQ.Eval(ctx, evalInput)
 	if err != nil {
 		return nil, fmt.Errorf("evaluating deny_reasons policy: %w", err)
 	}
