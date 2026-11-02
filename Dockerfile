@@ -13,7 +13,7 @@
 #   docker run --rm -v "$PWD:/work" devsecops-attestation keygen --out /work/keys
 #   docker run --rm -v "$PWD:/work" devsecops-attestation verify --chain /work/attestation-chain.json
 
-# golang:1.26-alpine, resolved 2026-09-21 via `docker pull golang:1.26-alpine`
+# golang:1.27-alpine, resolved 2026-09-21 via `docker pull golang:1.27-alpine`
 # followed by `docker inspect --format='{{index .RepoDigests 0}}'`.
 FROM golang:1.27-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
 
