@@ -251,6 +251,23 @@ func TestVerify(t *testing.T) {
 			t.Errorf("Verify() error = %v, want ErrThresholdNotMet", err)
 		}
 	})
+
+	t.Run("enough partials but invalid signature is rejected", func(t *testing.T) {
+		forged := *ps2
+		forged.Partial = make([]byte, ed25519.SignatureSize) // right length, wrong content
+		ta := &threshold.ThresholdAttestation{
+			Attestation:       *a,
+			Config:            cfg,
+			PartialSignatures: []threshold.PartialSignature{*ps1, forged},
+		}
+		err := threshold.Verify(ta)
+		if err == nil {
+			t.Fatal("Verify() expected error for invalid partial signature, got nil")
+		}
+		if err == threshold.ErrThresholdNotMet {
+			t.Errorf("Verify() error = %v, want a signature verification failure", err)
+		}
+	})
 }
 
 func TestVerifyThreshold(t *testing.T) {

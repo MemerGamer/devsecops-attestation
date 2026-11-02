@@ -73,9 +73,10 @@ type Signer interface {
 // Aggregator combines partial signatures from t-of-n participants into a
 // single verifiable combined signature.
 //
-// TODO(phase6): implement this.
-// Simple MSc version: collect t full Ed25519 sigs, store all of them.
-// PhD version: implement FROST aggregation into a single group signature.
+// The MSc implementation is SimpleAggregator (see multisig.go), which collects
+// t independent full Ed25519 signatures and stores all of them.
+//
+// TODO(phd): implement FROST aggregation into a single group signature.
 type Aggregator interface {
 	Aggregate(partials []PartialSignature, cfg ThresholdConfig) ([]byte, error)
 }
@@ -106,18 +107,13 @@ type ThresholdAttestation struct {
 // ErrThresholdNotMet is returned when fewer than t partial signatures are available.
 var ErrThresholdNotMet = errors.New("threshold not met: insufficient partial signatures")
 
-// Verify checks that a ThresholdAttestation has at least t valid partial signatures.
+// Verify checks that a ThresholdAttestation has at least t valid partial
+// signatures. It delegates to VerifyThreshold so that a count-only check can
+// never accept forged or invalid partial signatures.
 //
-// TODO(phase6): implement actual partial signature verification.
-// For now this is a placeholder that checks the count only.
+// TODO(phd): verify CombinedSignature against a FROST group public key once
+// group signature aggregation exists. SimpleAggregator output is not verified
+// here because the MSc scheme relies on the individual partial signatures.
 func Verify(ta *ThresholdAttestation) error {
-	if err := ta.Config.Validate(); err != nil {
-		return err
-	}
-	if len(ta.PartialSignatures) < ta.Config.Threshold {
-		return ErrThresholdNotMet
-	}
-	// TODO(phase6): verify each PartialSignature against its corresponding public key share.
-	// TODO(phase6): if CombinedSignature is set, verify it against the group public key.
-	return nil
+	return VerifyThreshold(ta)
 }
