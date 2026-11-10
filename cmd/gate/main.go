@@ -34,6 +34,16 @@ var osExit = os.Exit
 var version = "dev"
 
 func main() {
+	stop, err := startOpt05CPUProfile()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		osExit(1)
+		return
+	}
+	defer stop()
+	// Policy denies and verification failures also exit through osExit.
+	exit := osExit
+	osExit = func(code int) { stop(); exit(code) }
 	if err := rootCmd.Execute(); err != nil {
 		osExit(1)
 	}
