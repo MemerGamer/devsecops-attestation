@@ -28,6 +28,16 @@ import (
 var osExit = os.Exit
 
 func main() {
+	stop, err := startOpt05CPUProfile()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		osExit(1)
+		return
+	}
+	defer stop()
+	// Policy denies and verification failures also exit through osExit.
+	exit := osExit
+	osExit = func(code int) { stop(); exit(code) }
 	if err := rootCmd.Execute(); err != nil {
 		osExit(1)
 	}
@@ -39,14 +49,14 @@ var rootCmd = &cobra.Command{
 }
 
 type evaluateFlags struct {
-	chain               string
-	verifySigner        string
-	policyFile          string
-	policyHash          string
-	authorizedSigners   string
-	output              string
-	maxAge              string
-	requireLogEntries   bool
+	chain             string
+	verifySigner      string
+	policyFile        string
+	policyHash        string
+	authorizedSigners string
+	output            string
+	maxAge            string
+	requireLogEntries bool
 }
 
 var evalFlags evaluateFlags
