@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MemerGamer/devsecops-attestation/internal/attestation"
+	_ "github.com/MemerGamer/devsecops-attestation/internal/layoutpad" // EXP-1 Part T layout variant
 	"github.com/MemerGamer/devsecops-attestation/internal/policy"
 	"github.com/MemerGamer/devsecops-attestation/pkg/types"
 )
