@@ -20,6 +20,8 @@ func TestOpt05Metrics(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "metrics.jsonl")
 	t.Setenv("OPT05_OPA_METRICS", path)
+	// Use a cold Evaluator: warm prepared calls correctly have no compile timers.
+	e = NewEvaluator("")
 	after, err := e.Evaluate(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
