@@ -49,14 +49,14 @@ var rootCmd = &cobra.Command{
 }
 
 type evaluateFlags struct {
-	chain             string
-	verifySigner      string
-	policyFile        string
-	policyHash        string
-	authorizedSigners string
-	output            string
-	maxAge            string
-	requireLogEntries bool
+	chain               string
+	verifySigner        string
+	policyFile          string
+	policyHash          string
+	authorizedSigners   string
+	output              string
+	maxAge              string
+	requireLogEntries   bool
 }
 
 var evalFlags evaluateFlags
