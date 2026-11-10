@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/open-policy-agent/opa/rego"
 	"github.com/open-policy-agent/opa/storage/inmem"
@@ -31,6 +32,11 @@ var DefaultPolicy = policies.Deploy
 
 // Evaluator wraps an OPA query for deployment gate decisions.
 type Evaluator struct {
+	once    sync.Once
+	allowQ  rego.PreparedEvalQuery
+	denyQ   rego.PreparedEvalQuery
+	prepErr error
+
 	policy string         // Rego source
 	data   map[string]any // optional data.config document
 }
@@ -75,14 +81,15 @@ func EvaluateFromFile(ctx context.Context, policyPath string, input types.Policy
 	return NewEvaluator(policySource, opts...).Evaluate(ctx, input)
 }
 
-// Evaluate runs the policy against the provided attestation chain.
-// The attestations must already be verified (signatures + chain) before calling this.
-func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*types.GateDecision, error) {
+// prepare ports opt01 (96b573d): prepare both queries once per Evaluator.
+// Each cell retains its original module, query and optional store setup.
+// Preparation uses a background context, as opt01 does; it is not interruptible.
+func (e *Evaluator) prepare() {
+	ctx := context.Background()
 	// Build the OPA query. When e.data is set, it is loaded into the OPA
 	// store under "config" so the policy can read data.config.* overrides.
 	regoOpts := []func(*rego.Rego){
 		rego.Module("policy.rego", e.policy),
-		rego.Input(toMap(input)),
 	}
 	if e.data != nil {
 		store := inmem.NewFromObject(map[string]any{"config": e.data})
@@ -92,8 +99,29 @@ func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*typ
 	allowQuery := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.allow")}, regoOpts...)...)
 	denyQuery := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.deny_reasons")}, regoOpts...)...)
 
+	var err error
+	e.allowQ, err = allowQuery.PrepareForEval(ctx)
+	if err != nil {
+		e.prepErr = fmt.Errorf("evaluating allow policy: %w", err)
+		return
+	}
+	e.denyQ, err = denyQuery.PrepareForEval(ctx)
+	if err != nil {
+		e.prepErr = fmt.Errorf("evaluating deny_reasons policy: %w", err)
+	}
+}
+
+// Evaluate runs the policy against the provided attestation chain.
+// The attestations must already be verified (signatures + chain) before calling this.
+func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*types.GateDecision, error) {
+	e.once.Do(e.prepare)
+	if e.prepErr != nil {
+		return nil, e.prepErr
+	}
+	evalInput := rego.EvalInput(toMap(input))
+
 	// Evaluate allow.
-	allowRS, err := allowQuery.Eval(ctx)
+	allowRS, err := e.allowQ.Eval(ctx, evalInput)
 	if err != nil {
 		return nil, fmt.Errorf("evaluating allow policy: %w", err)
 	}
@@ -103,7 +131,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*typ
 	}
 
 	// Evaluate deny reasons.
-	denyRS, err := denyQuery.Eval(ctx)
+	denyRS, err := e.denyQ.Eval(ctx, evalInput)
 	if err != nil {
 		return nil, fmt.Errorf("evaluating deny_reasons policy: %w", err)
 	}
