@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/open-policy-agent/opa/rego"
+	"github.com/open-policy-agent/opa/metrics"
 
 	"github.com/MemerGamer/devsecops-attestation/pkg/types"
 )
@@ -151,7 +152,7 @@ func EvaluateFromFile(ctx context.Context, policyPath string, input types.Policy
 // prepare ports opt01 (96b573d): prepare both queries once per Evaluator.
 // Each cell retains its original module, query and optional store setup.
 // Preparation uses a background context, as opt01 does; it is not interruptible.
-func (e *Evaluator) prepare() {
+func (e *Evaluator) prepare(metric metrics.Metrics) {
 	ctx := context.Background()
 	// Build the OPA query.
 	allowQuery := rego.New(
@@ -163,6 +164,10 @@ func (e *Evaluator) prepare() {
 		rego.Module("policy.rego", e.policy),
 	)
 
+	if metric != nil {
+		rego.Metrics(metric)(allowQuery)
+		rego.Metrics(metric)(denyQuery)
+	}
 	var err error
 	e.allowQ, err = allowQuery.PrepareForEval(ctx)
 	if err != nil {
@@ -177,15 +182,21 @@ func (e *Evaluator) prepare() {
 
 // Evaluate runs the policy against the provided attestation chain.
 // The attestations must already be verified (signatures + chain) before calling this.
-func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*types.GateDecision, error) {
-	e.once.Do(e.prepare)
+func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (decision *types.GateDecision, resultErr error) {
+	metric, finish, err := startOpt05Metrics()
+	if err != nil { return nil, err }
+	defer func() {
+		if err := finish(); err != nil && resultErr == nil { decision = nil; resultErr = err }
+	}()
+	e.once.Do(func() { e.prepare(metric) })
 	if e.prepErr != nil {
 		return nil, e.prepErr
 	}
-	evalInput := rego.EvalInput(toMap(input))
+	evalOptions := []rego.EvalOption{rego.EvalInput(toMap(input))}
+	if metric != nil { evalOptions = append(evalOptions, rego.EvalMetrics(metric)) }
 
 	// Evaluate allow.
-	allowRS, err := e.allowQ.Eval(ctx, evalInput)
+	allowRS, err := e.allowQ.Eval(ctx, evalOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("evaluating allow policy: %w", err)
 	}
@@ -195,7 +206,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*typ
 	}
 
 	// Evaluate deny reasons.
-	denyRS, err := e.denyQ.Eval(ctx, evalInput)
+	denyRS, err := e.denyQ.Eval(ctx, evalOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("evaluating deny_reasons policy: %w", err)
 	}
