@@ -324,34 +324,45 @@ configuration:
   A config fetched from a separate, protected location (a release asset,
   an organization-level repository) cannot be altered by a PR against this
   repository.
-- **Protect the signing environment** (see `environment: production` on
-  `deploy-gate` in this repository's own workflow, and "Deploy gate secret
-  exposure" below): even a suppressed finding still has to pass through
-  signing before it reaches a decision, so required reviewers on the
-  environment that holds the signing keys are a second checkpoint
-  independent of the scanner configuration.
+- **Protect the signing environment**: this repository's `sign` job
+  selects `production` only on `push` to `main`, and `test` for eligible
+  internal PRs and `develop` pushes. The production environment must hold
+  the production secrets and permit only the `main` branch. Optional
+  required reviewers add a checkpoint independent of scanner configuration.
 
 ### Deploy gate secret exposure
 
-The `deploy-gate` job above builds the attestation tooling and handles every
-signing key secret (`SAST_SIGNING_KEY`, `SCA_SIGNING_KEY`, ...). GitHub
-exposes secrets to `pull_request`-triggered jobs even for forked PRs when
-the base repository's workflow defines them, so without a guard, a forked
-PR that modifies this workflow (or a dependency it pulls in) could exfiltrate
-every signing key. The `if:` on `deploy-gate` above restricts it to `push`
-events and to `pull_request` events whose head repository is this same
-repository (i.e., not a fork), and excludes dependabot/renovate PRs the same
-way the scanner jobs already are.
+The consumer workflow example above uses a combined `deploy-gate` job to
+illustrate the composite actions. It downloads artifacts and holds all
+four signing keys in the same job as third-party actions. It does not
+implement DG-8 isolation; do not use it unchanged for production keys.
+Fork PRs normally receive no repository secrets. Internal PRs can receive
+them, so excluding forks and bots alone does not protect production keys
+from unmerged internal code.
 
-Additionally, configure the environment referenced by `deploy-gate` (e.g.
-`production`, as this repository's own pipeline does) as a **protected
-GitHub environment** with required reviewers and, ideally, deployment
-branch restrictions limited to `main`. This adds a human approval gate in
-front of the job that holds the signing keys, independent of the `if:`
-condition above. Configuring the environment itself is a repository
-settings change, not something this composite action or workflow file can
-enforce - see `SECURITY.md` for the recommendation in this repository's own
-context.
+This repository's own workflow instead uses DG-8 design A: scanners pass
+bounded gzip/base64 outputs with SHA-256 digests and a chunk-length manifest
+to `sign`. The job fetches the exact source SHA, verifies a pinned Go
+archive and modules, uses fresh caches, and runs only run steps and local
+composites. One signing job still holds all four selected private keys.
+`publish` holds no signing secrets; it checks transported diagnostics,
+uploads available status/chain/decision files, builds releases only after
+success and an `allow: true` decision, and creates GitHub provenance.
+
+Configure `production` with a branch rule permitting exactly `main`, no
+tag rules, and all eight unprefixed signing/public-key secrets. Remove
+repository-level or organization-accessible copies of the same production
+keys. Configure `test` to allow internal PR merge refs and `develop`, with
+the eight corresponding `TEST_` secrets there or at repository level.
+The workflow selects secret names before looking up their values, so an
+empty test secret cannot fall back to production. Environment protection
+is enforced by GitHub independently of edits to the workflow.
+
+Before merging, replace required check `deploy-gate` with `sign` and
+`publish` in branch protection. See the exact names and setup steps in
+[`../README.md`](../README.md#github-actions-setup). These settings are
+configured by the repository owner; the composite actions do not configure
+environments or secrets.
 
 ### Forgejo usage
 

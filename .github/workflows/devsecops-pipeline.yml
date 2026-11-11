@@ -76,6 +76,7 @@ jobs:
       part2: ${{ steps.report.outputs.part2 }}
       part3: ${{ steps.report.outputs.part3 }}
       sha256: ${{ steps.report.outputs.sha256_0 }}
+      manifest: ${{ steps.report.outputs.manifest }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -125,6 +126,7 @@ jobs:
       part2: ${{ steps.report.outputs.part2 }}
       part3: ${{ steps.report.outputs.part3 }}
       sha256: ${{ steps.report.outputs.sha256_0 }}
+      manifest: ${{ steps.report.outputs.manifest }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -176,6 +178,7 @@ jobs:
       part2: ${{ steps.report.outputs.part2 }}
       part3: ${{ steps.report.outputs.part3 }}
       sha256: ${{ steps.report.outputs.sha256_0 }}
+      manifest: ${{ steps.report.outputs.manifest }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -219,6 +222,7 @@ jobs:
       part2: ${{ steps.report.outputs.part2 }}
       part3: ${{ steps.report.outputs.part3 }}
       sha256: ${{ steps.report.outputs.sha256_0 }}
+      manifest: ${{ steps.report.outputs.manifest }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -270,7 +274,7 @@ jobs:
   sign:
     needs: [test, sast, sca, config, secret]
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || 'test' }}
     # Internal PRs use test keys; fork and bot guards remain unchanged.
     if: >-
       (github.event_name == 'push' ||
@@ -278,16 +282,17 @@ jobs:
       github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     permissions:
       contents: read
-      actions: read
     outputs:
       part0: ${{ steps.bundle.outputs.part0 }}
       part1: ${{ steps.bundle.outputs.part1 }}
       part2: ${{ steps.bundle.outputs.part2 }}
       part3: ${{ steps.bundle.outputs.part3 }}
-      chain_sha256: ${{ steps.bundle.outputs.sha256_0 }}
-      decision_sha256: ${{ steps.bundle.outputs.sha256_1 }}
+      manifest: ${{ steps.bundle.outputs.manifest }}
+      status: ${{ steps.bundle.outputs.status }}
+      status_sha256: ${{ steps.bundle.outputs.status_sha256 }}
     steps:
       - name: Fetch exact source without persisted credentials
+        id: source
         run: |
           set -euo pipefail
           git init .
@@ -296,6 +301,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Check selected signing and verification secrets
+        id: keys
         env:
           KEY_SET: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || 'test' }}
           SAST_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_SIGNING_KEY' || 'TEST_SAST_SIGNING_KEY'] }}
@@ -309,54 +315,62 @@ jobs:
         run: bash .ci/check-keys.sh
 
       - name: Install pinned Go in a fresh directory
+        id: toolchain
         run: bash .ci/install-go.sh
 
       - name: Download and verify modules before building
+        id: modules
         run: |
           go mod download
           go mod verify
 
       - uses: ./actions/setup
+        id: setup
         with:
           version: source
 
       - name: Prepare raw report parent directory
+        id: raw_directory
         run: mkdir "${{ runner.temp }}/raw"
 
       - name: Decode and verify sast report
+        id: decode_sast
         env:
           PART0: ${{ needs.sast.outputs.part0 }}
           PART1: ${{ needs.sast.outputs.part1 }}
           PART2: ${{ needs.sast.outputs.part2 }}
           PART3: ${{ needs.sast.outputs.part3 }}
-          SHA256_0: ${{ needs.sast.outputs.sha256 }}
+          MANIFEST: ${{ needs.sast.outputs.manifest }}
         run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/sast" semgrep-raw.json
 
       - name: Decode and verify sca report
+        id: decode_sca
         env:
           PART0: ${{ needs.sca.outputs.part0 }}
           PART1: ${{ needs.sca.outputs.part1 }}
           PART2: ${{ needs.sca.outputs.part2 }}
           PART3: ${{ needs.sca.outputs.part3 }}
-          SHA256_0: ${{ needs.sca.outputs.sha256 }}
+          MANIFEST: ${{ needs.sca.outputs.manifest }}
         run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/sca" trivy-raw.json
 
       - name: Decode and verify config report
+        id: decode_config
         env:
           PART0: ${{ needs.config.outputs.part0 }}
           PART1: ${{ needs.config.outputs.part1 }}
           PART2: ${{ needs.config.outputs.part2 }}
           PART3: ${{ needs.config.outputs.part3 }}
-          SHA256_0: ${{ needs.config.outputs.sha256 }}
+          MANIFEST: ${{ needs.config.outputs.manifest }}
         run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/config" checkov-raw.json
 
       - name: Decode and verify secret report
+        id: decode_secret
         env:
           PART0: ${{ needs.secret.outputs.part0 }}
           PART1: ${{ needs.secret.outputs.part1 }}
           PART2: ${{ needs.secret.outputs.part2 }}
           PART3: ${{ needs.secret.outputs.part3 }}
-          SHA256_0: ${{ needs.secret.outputs.sha256 }}
+          MANIFEST: ${{ needs.secret.outputs.manifest }}
         run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/secret" gitleaks-raw.json
 
       # fail-on is passed explicitly here (matching the CLI/action default
@@ -364,6 +378,7 @@ jobs:
       # workflow rather than relying on the action's default staying in
       # sync with the gate's --fail-on-severity below.
       - uses: ./actions/normalize-sign
+        id: sign_sast
         with:
           tool: semgrep
           raw-result: ${{ runner.temp }}/raw/sast/semgrep-raw.json
@@ -371,6 +386,7 @@ jobs:
           fail-on: high
 
       - uses: ./actions/normalize-sign
+        id: sign_sca
         with:
           tool: trivy
           raw-result: ${{ runner.temp }}/raw/sca/trivy-raw.json
@@ -378,6 +394,7 @@ jobs:
           fail-on: high
 
       - uses: ./actions/normalize-sign
+        id: sign_config
         with:
           tool: checkov
           raw-result: ${{ runner.temp }}/raw/config/checkov-raw.json
@@ -385,6 +402,7 @@ jobs:
           fail-on: high
 
       - uses: ./actions/normalize-sign
+        id: sign_secret
         with:
           tool: gitleaks
           raw-result: ${{ runner.temp }}/raw/secret/gitleaks-raw.json
@@ -402,6 +420,7 @@ jobs:
       # documents, in the workflow itself, exactly which policy logic this
       # run is expected to evaluate against.
       - uses: ./actions/gate
+        id: gate
         with:
           chain: attestation-chain.json
           authorized-signers: >-
@@ -417,13 +436,49 @@ jobs:
           output: gate-decision.json
           expect: allow
 
-      - name: Encode chain and decision for publishing
+      # This bootstrap still emits status if source fetch failed, before any
+      # local script became available. Only known data files are transported.
+      - name: Collect signing status and available diagnostics
         id: bundle
         if: always()
+        env:
+          STEP_OUTCOMES: ${{ toJSON(steps) }}
         run: |
-          mkdir "${{ runner.temp }}/f1-signed"
-          cp -P -- attestation-chain.json gate-decision.json "${{ runner.temp }}/f1-signed/"
-          python3 .ci/transport.py encode "${{ runner.temp }}/f1-signed" attestation-chain.json gate-decision.json
+          python3 - <<'PY_STATUS'
+          import hashlib, json, os
+          steps = json.loads(os.environ["STEP_OUTCOMES"])
+          outcomes = {name: step["outcome"] for name, step in steps.items()}
+          failed = [name for name, outcome in outcomes.items() if outcome == "failure"]
+          gate = outcomes.get("gate", "skipped")
+          success = not failed and gate == "success"
+          if success:
+              message = "sign and gate completed successfully"
+          elif gate == "skipped":
+              message = "sign failed before gate: " + (", ".join(failed) or "signing did not complete") + "; see sign job logs"
+          else:
+              message = "sign failed at " + (", ".join(failed) or "gate") + "; see sign job logs"
+          status = json.dumps({"result": "success" if success else "failure", "message": message, "steps": outcomes}, separators=(",", ":"))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("status=" + status + "\n")
+              output.write("status_sha256=" + hashlib.sha256(status.encode()).hexdigest() + "\n")
+          if not success:
+              print("::error::" + message)
+          PY_STATUS
+          # A partial chain remains useful if normalization/signing or gate
+          # evaluation failed. A source-fetch failure has status alone.
+          if [[ -f .ci/transport.py ]]; then
+            mkdir "${{ runner.temp }}/f1-signed"
+            files=()
+            for name in attestation-chain.json gate-decision.json; do
+              if [[ -e "$name" || -L "$name" ]]; then
+                cp -P -- "$name" "${{ runner.temp }}/f1-signed/"
+                files+=("$name")
+              fi
+            done
+            if (( ${#files[@]} )); then
+              python3 .ci/transport.py encode "${{ runner.temp }}/f1-signed" "${files[@]}"
+            fi
+          fi
 
   # This fresh runner references no private keys. Failed gate decisions are
   # uploaded for diagnosis, but only a successful sign job builds a release.
@@ -444,24 +499,33 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Decode and verify chain and decision
+      - name: Restore signing status and verify available diagnostics
         env:
           PART0: ${{ needs.sign.outputs.part0 }}
           PART1: ${{ needs.sign.outputs.part1 }}
           PART2: ${{ needs.sign.outputs.part2 }}
           PART3: ${{ needs.sign.outputs.part3 }}
-          SHA256_0: ${{ needs.sign.outputs.chain_sha256 }}
-          SHA256_1: ${{ needs.sign.outputs.decision_sha256 }}
-        run: python3 .ci/transport.py decode "${{ runner.temp }}/signed" attestation-chain.json gate-decision.json
+          MANIFEST: ${{ needs.sign.outputs.manifest }}
+          SIGN_STATUS: ${{ needs.sign.outputs.status }}
+          STATUS_SHA256: ${{ needs.sign.outputs.status_sha256 }}
+          SIGN_RESULT: ${{ needs.sign.result }}
+        run: python3 .ci/publish-diagnostics.py "${{ runner.temp }}/signed"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
         with:
           name: attestation-chain-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/signed/attestation-chain.json
-            ${{ runner.temp }}/signed/gate-decision.json
+          path: ${{ runner.temp }}/signed/
           retention-days: 90
           if-no-files-found: error
+
+      - name: Require an allow decision before release build
+        if: needs.sign.result == 'success'
+        run: |
+          jq -e '.allow == true' "${{ runner.temp }}/signed/gate-decision.json" >/dev/null || {
+            echo 'decoded gate decision does not allow release; refusing to build' >&2
+            exit 1
+          }
 
       - name: Build release binaries
         if: needs.sign.result == 'success'
@@ -516,6 +580,9 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+
+      - name: Run signing transport, diagnostics and selected-key tests
+        run: python3 .ci/test/test_transport.py
 
       - name: Run composite actions self-test
         run: bash actions/test/run-local.sh

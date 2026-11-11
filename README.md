@@ -221,48 +221,95 @@ go run ./cmd/gate evaluate \
 
 ## GitHub Actions Setup
 
-`.github/workflows/devsecops-pipeline.yml` dogfoods this repository's own
-composite actions rather than hand-rolled steps: `sast`, `sca`, `config` and
-`secret` run in parallel jobs and upload raw scanner JSON as artifacts; the
-`deploy-gate` job downloads them, calls `./actions/setup` with
-`version: source` (so the CLI binaries are built from the same commit the
-job is running), normalizes and signs each raw result with
-`./actions/normalize-sign`, and evaluates the assembled chain with
-`./actions/gate`. An `actions-selftest` job runs
-`actions/test/run-local.sh` on every push and pull request so a change to
-the composite actions themselves is validated before the jobs that depend
-on them run. See [`actions/README.md`](actions/README.md) for the full
-input/output reference of each action, including how to consume them from
-another repository (`uses: MemerGamer/devsecops-attestation/actions/<name>@<ref>`)
-or from a Forgejo mirror.
+`.github/workflows/devsecops-pipeline.yml` runs `test` and the four scanner
+jobs (`sast`, `sca`, `config`, `secret`) in parallel. Scanners retain their
+raw JSON artifact uploads and pass reports to `sign` through gzip/base64
+job outputs with per-file SHA-256 digests and a chunk-length manifest.
+Each job's combined encoded payload is limited to 400,000 characters.
 
-The pipeline uses per-check-type key pairs. Each check type has its own
-dedicated signing key so a compromise is contained to a single check.
+`sign` waits for tests and scanners, fetches the exact triggering commit,
+installs a checksum-pinned Go toolchain with fresh caches, verifies modules,
+and builds the CLI binaries with `./actions/setup` (`version: source`).
+It checks the report transport, normalizes and signs results with
+`./actions/normalize-sign`, and evaluates the chain with `./actions/gate`.
+Only run steps and local composites execute in this job. One job holds all
+four signing keys, so a compromise of that job reaches every check type.
 
-**1. Generate four key pairs locally:**
+`publish` runs on a fresh runner without signing secrets. It verifies the
+encoded chain and decision, uploads available diagnostics (including a
+signing status report for failures before the gate), and builds release
+binaries only after a successful `sign` job and a decoded `allow: true`
+decision. Artifact uploads and GitHub provenance attestation run here.
+`actions-selftest` runs both `.ci/test/test_transport.py` (transport,
+diagnostics and selected-key checks) and `actions/test/run-local.sh` on
+every push to `main`/`develop` and pull request to `main`.
+
+The exact-SHA fetch in `sign` is anonymous because this repository is
+public. A private Forgejo repository needs an authenticated credential
+path for that fetch without persisting credentials. WP-E-05 tests that
+path before private-repository deployment.
+
+See [`actions/README.md`](actions/README.md) for the composite action
+input/output reference and consumer workflow example.
+
+**1. Generate separate production and test key pairs locally:**
 
 ```shell
-for check in sast sca config secret; do
-  go run ./cmd/keygen --out "keys/$check"
+for keyset in production test; do
+  for check in sast sca config secret; do
+    go run ./cmd/keygen --out "keys/$keyset/$check"
+  done
 done
 ```
 
-**2. Add all eight secrets to your repository:**
+**2. Configure secrets and environments before merging:**
 
-Go to: **Settings > Secrets and variables > Actions > New repository secret**
+Under **Settings > Environments**, create `production` and `test`.
+For `production`, set **Deployment branches and tags > Selected branches
+and tags** to a branch rule matching exactly `main`; add no tag rules.
+Store these eight production secrets in that environment:
 
-| Secret name | Value |
+| Production environment secret | Value |
 |---|---|
-| `SAST_SIGNING_KEY` | Contents of `keys/sast/private.hex` |
-| `SCA_SIGNING_KEY` | Contents of `keys/sca/private.hex` |
-| `CONFIG_SIGNING_KEY` | Contents of `keys/config/private.hex` |
-| `SECRET_SCANNING_SIGNING_KEY` | Contents of `keys/secret/private.hex` |
-| `SAST_PUBLIC_KEY` | Contents of `keys/sast/public.hex` |
-| `SCA_PUBLIC_KEY` | Contents of `keys/sca/public.hex` |
-| `CONFIG_PUBLIC_KEY` | Contents of `keys/config/public.hex` |
-| `SECRET_SCANNING_PUBLIC_KEY` | Contents of `keys/secret/public.hex` |
+| `SAST_SIGNING_KEY` | Contents of `keys/production/sast/private.hex` |
+| `SCA_SIGNING_KEY` | Contents of `keys/production/sca/private.hex` |
+| `CONFIG_SIGNING_KEY` | Contents of `keys/production/config/private.hex` |
+| `SECRET_SCANNING_SIGNING_KEY` | Contents of `keys/production/secret/private.hex` |
+| `SAST_PUBLIC_KEY` | Contents of `keys/production/sast/public.hex` |
+| `SCA_PUBLIC_KEY` | Contents of `keys/production/sca/public.hex` |
+| `CONFIG_PUBLIC_KEY` | Contents of `keys/production/config/public.hex` |
+| `SECRET_SCANNING_PUBLIC_KEY` | Contents of `keys/production/secret/public.hex` |
 
-Never commit any `private.hex` file. The `keys/` directory is already in `.gitignore`.
+After moving them, remove repository-level copies of these production
+secrets and any organization-secret access exposing the same production
+keys to this repository. Otherwise a job outside the protected environment
+can still reference those copies.
+
+Allow the `test` environment to run for internal pull-request merge refs
+and `develop` (the **No restriction** setting allows both). Store these
+eight separate test secrets in `test`, or as repository Actions secrets
+under **Settings > Secrets and variables > Actions**:
+
+| Test secret | Value |
+|---|---|
+| `TEST_SAST_SIGNING_KEY` | Contents of `keys/test/sast/private.hex` |
+| `TEST_SCA_SIGNING_KEY` | Contents of `keys/test/sca/private.hex` |
+| `TEST_CONFIG_SIGNING_KEY` | Contents of `keys/test/config/private.hex` |
+| `TEST_SECRET_SCANNING_SIGNING_KEY` | Contents of `keys/test/secret/private.hex` |
+| `TEST_SAST_PUBLIC_KEY` | Contents of `keys/test/sast/public.hex` |
+| `TEST_SCA_PUBLIC_KEY` | Contents of `keys/test/sca/public.hex` |
+| `TEST_CONFIG_PUBLIC_KEY` | Contents of `keys/test/config/public.hex` |
+| `TEST_SECRET_SCANNING_PUBLIC_KEY` | Contents of `keys/test/secret/public.hex` |
+
+`sign` selects `production` and the unprefixed secret names only for
+`push` to `main`. Eligible internal PRs and `develop` pushes select `test`
+and the `TEST_` names. GitHub resolves the selected names from environment
+or repository secrets; missing selected secrets fail closed without a
+fallback to production. Fork and dependabot/renovate guards remain in
+place. Environment-scoped production secrets and the main-only rule are
+required to enforce the boundary outside the editable workflow YAML.
+
+Never commit any `private.hex` file. The `keys/` directory is ignored.
 
 **3. Policy hash (keep in sync):**
 
@@ -282,21 +329,17 @@ compute it with `go run ./cmd/gate config-hash` using the same flags. The
 bundled workflow uses the default configuration, so no `--config-hash` is
 needed there.
 
-**4. Production environment (recommended):**
+**4. Update required checks before merging:**
 
-The `deploy-gate` job holds every signing key secret and targets the
-`production` environment. Configure it as a **protected environment** under
-**Settings > Environments > production**: required reviewers add a human
-approval gate in front of the job that holds the signing keys, and
-deployment branch restrictions (limit to `main`) stop the environment's
-secrets from being reachable at all from a branch that is not `main`. This
-is independent of, and in addition to, the `if:` condition already on
-`deploy-gate` that excludes pull requests from forks and
-dependabot/renovate (see "Zero-Trust Design" above and
-[`actions/README.md`](actions/README.md#deploy-gate-secret-exposure)); the
-`if:` guard is enforced by the workflow file itself and could in principle
-be edited, while environment protection rules are enforced by GitHub
-independent of the workflow YAML.
+In the branch protection rule or ruleset for `main`, replace the required
+check `deploy-gate` with both `sign` and `publish`. Keep the other required
+checks unchanged. Apply the same replacement to any `develop` protection
+that currently requires `deploy-gate`.
+
+Optional required reviewers on `production` add an approval gate. Configure
+environment rules and secrets in GitHub settings; the workflow does not
+create their protection rules or provision secrets. See also
+[`actions/README.md`](actions/README.md#deploy-gate-secret-exposure).
 
 **Consuming this pipeline from another repository:** you do not need to
 clone or build this repository to use its attestation pipeline. Reference

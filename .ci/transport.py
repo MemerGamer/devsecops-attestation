@@ -12,6 +12,7 @@ import base64
 import gzip
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -111,6 +112,37 @@ def decode(directory, names, payload, digests):
             output.write(data)
 
 
+def read_outputs(names=None):
+    """Check the producer's chunk manifest before decoding gzip or tar data."""
+    manifest = json.loads(os.environ.get("MANIFEST", ""))
+    if not isinstance(manifest, dict) or set(manifest) != {"chunks", "files"}:
+        raise ValueError("invalid output manifest")
+    lengths = manifest["chunks"]
+    digests = manifest["files"]
+    if (
+        not isinstance(lengths, list)
+        or not 1 <= len(lengths) <= CHUNKS
+        or any(type(size) is not int or not 1 <= size <= CHUNK_SIZE for size in lengths)
+        or any(size != CHUNK_SIZE for size in lengths[:-1])
+        or sum(lengths) > MAX_ENCODED
+        or not isinstance(digests, dict)
+    ):
+        raise ValueError("invalid chunk lengths or file digests in output manifest")
+    check_names(list(digests))
+    if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value) for value in digests.values()):
+        raise ValueError("missing or invalid SHA-256 output")
+    if names is not None and set(digests) != set(names):
+        raise ValueError("missing or unexpected files in output manifest")
+    parts = [os.environ.get(f"PART{i}", "") for i in range(CHUNKS)]
+    # Compare each slot with the original lengths. Reconstructing lengths from
+    # received data alone cannot detect a dropped chunk if later chunks shift.
+    for i, part in enumerate(parts):
+        expected = lengths[i] if i < len(lengths) else 0
+        if len(part) != expected:
+            raise ValueError(f"output chunk {i} missing, truncated or unexpected (expected {expected} characters, got {len(part)})")
+    return "".join(parts), digests
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("encode", "decode"))
@@ -122,17 +154,12 @@ def main():
         # One call emits the entire job bundle, so the limit is combined.
         lines = [f"part{i}={payload[i * CHUNK_SIZE : (i + 1) * CHUNK_SIZE]}\n" for i in range(CHUNKS)]
         lines += [f"sha256_{i}={digests[name]}\n" for i, name in enumerate(args.names)]
+        manifest = {"chunks": [len(payload[i : i + CHUNK_SIZE]) for i in range(0, len(payload), CHUNK_SIZE)], "files": digests}
+        lines.append("manifest=" + json.dumps(manifest, separators=(",", ":")) + "\n")
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="ascii") as output:
             output.writelines(lines)
     else:
-        parts = [os.environ.get(f"PART{i}", "") for i in range(CHUNKS)]
-        payload = "".join(parts)
-        # Missing chunks must not silently reorder the remaining data.
-        if any(len(part) > CHUNK_SIZE for part in parts) or parts != [
-            payload[i * CHUNK_SIZE : (i + 1) * CHUNK_SIZE] for i in range(CHUNKS)
-        ]:
-            raise ValueError("missing, truncated or oversized output chunk")
-        digests = {name: os.environ.get(f"SHA256_{i}", "") for i, name in enumerate(args.names)}
+        payload, digests = read_outputs(args.names)
         decode(args.directory, args.names, payload, digests)
 
 

@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -13,6 +14,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import yaml
 
 SCRIPT = Path(__file__).resolve().parents[1] / "transport.py"
 sys.dont_write_bytecode = True
@@ -67,7 +69,7 @@ class TransportTests(unittest.TestCase):
         self.assertGreater(len(payload), 200_000)
         self.assertLessEqual(len(payload), transport.MAX_ENCODED)
         env.update({f"PART{i}": values[f"part{i}"] for i in range(transport.CHUNKS)})
-        env.update({f"SHA256_{i}": values[f"sha256_{i}"] for i in range(len(self.names))})
+        env["MANIFEST"] = values["manifest"]
         destination = self.root / "decoded"
         subprocess.run([sys.executable, str(SCRIPT), "decode", str(destination), *self.names], env=env, check=True)
         for name in self.names:
@@ -77,6 +79,24 @@ class TransportTests(unittest.TestCase):
         env["PART1"] = ""
         result = subprocess.run([sys.executable, str(SCRIPT), "decode", str(self.root / "missing"), *self.names], env=env, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"output chunk 1 missing, truncated or unexpected", result.stderr)
+
+    def test_manifest_rejects_shifted_middle_chunk_before_decompression(self):
+        # Four chunks, including three full chunks. Dropping then shifting a
+        # full middle chunk leaves a plausible contiguous payload, but the
+        # producer's original lengths identify the loss before gzip decoding.
+        (self.source / self.names[0]).write_bytes(os.urandom(250_000))
+        payload, digests = transport.encode(self.source, self.names)
+        parts = [payload[i : i + transport.CHUNK_SIZE] for i in range(0, len(payload), transport.CHUNK_SIZE)]
+        self.assertEqual(len(parts), 4)
+        manifest = json.dumps({"chunks": list(map(len, parts)), "files": digests})
+        shifted = [parts[0], parts[2], parts[3], ""]
+        env = dict(os.environ, MANIFEST=manifest, **{f"PART{i}": part for i, part in enumerate(shifted)})
+        result = subprocess.run([sys.executable, str(SCRIPT), "decode", str(self.root / "decoded"), *self.names], env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("output chunk 2 missing, truncated or unexpected", result.stderr)
+        self.assertNotIn("gzip", result.stderr)
+        self.assertFalse((self.root / "decoded").exists())
 
     def test_combined_encoded_bound(self):
         for name in self.names:
@@ -176,6 +196,90 @@ class SelectedKeyTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(f"secret {prefix}{name} is empty", result.stderr)
                     self.assertNotIn("dummy-value", result.stderr)
+
+
+class DiagnosticsTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.workflow = yaml.safe_load((SCRIPT.parents[1] / ".github/workflows/devsecops-pipeline.yml").read_text())
+
+    def collect(self, outcomes, reports=None):
+        if reports is not None:
+            (self.root / ".ci").mkdir()
+            (self.root / ".ci/transport.py").write_bytes(SCRIPT.read_bytes())
+            for name, data in reports.items():
+                (self.root / name).write_text(data)
+        step = next(step for step in self.workflow["jobs"]["sign"]["steps"] if step.get("id") == "bundle")
+        command = step["run"].replace("${{ runner.temp }}", str(self.root))
+        output = self.root / "outputs"
+        env = dict(os.environ, GITHUB_OUTPUT=str(output), STEP_OUTCOMES=json.dumps({name: {"outcome": outcome} for name, outcome in outcomes.items()}))
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", command], cwd=self.root, env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        return values, result
+
+    def publish(self, values, result):
+        env = dict(os.environ, SIGN_RESULT=result, SIGN_STATUS=values["status"], STATUS_SHA256=values["status_sha256"], MANIFEST=values.get("manifest", ""))
+        env.update({f"PART{i}": values.get(f"part{i}", "") for i in range(transport.CHUNKS)})
+        return subprocess.run([sys.executable, str(SCRIPT.with_name("publish-diagnostics.py")), str(self.root / "signed")], env=env, text=True, capture_output=True)
+
+    def test_source_fetch_failure_still_publishes_clear_status(self):
+        values, result = self.collect({"source": "failure", "gate": "skipped"})
+        self.assertIn("sign failed before gate: source", result.stdout)
+        result = self.publish(values, "failure")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sign failed before gate: source", result.stderr)
+        self.assertNotIn("missing/empty payload", result.stderr)
+        status = json.loads((self.root / "signed/sign-status.json").read_text())
+        self.assertEqual(status["result"], "failure")
+        self.assertTrue(any(step.get("uses", "").startswith("actions/upload-artifact@") and step.get("if") == "always()" for step in self.workflow["jobs"]["publish"]["steps"]))
+
+    def test_pre_gate_failure_retains_partial_chain(self):
+        values, _ = self.collect({"source": "success", "sign_sca": "failure", "gate": "skipped"}, {"attestation-chain.json": "[]"})
+        result = self.publish(values, "failure")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("sign failed before gate: sign_sca", result.stderr)
+        self.assertEqual((self.root / "signed/attestation-chain.json").read_text(), "[]")
+        self.assertFalse((self.root / "signed/gate-decision.json").exists())
+
+    def test_successful_sign_requires_both_reports(self):
+        values, _ = self.collect({"gate": "success"}, {"attestation-chain.json": "[]"})
+        result = self.publish(values, "success")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("lacks a complete successful gate result", result.stderr)
+        self.assertTrue((self.root / "signed/sign-status.json").is_file())
+
+    def test_damaged_bundle_preserves_status_for_upload(self):
+        values, _ = self.collect({"gate": "success"}, {"attestation-chain.json": "[]", "gate-decision.json": '{"allow":true}'})
+        values["part0"] = values["part0"][:-4]
+        result = self.publish(values, "success")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("output chunk 0 missing, truncated or unexpected", result.stderr)
+        self.assertTrue((self.root / "signed/sign-status.json").is_file())
+
+    def test_complete_success_and_deny_diagnostics_round_trip(self):
+        for allow in [True, False]:
+            with self.subTest(allow=allow), tempfile.TemporaryDirectory() as scratch:
+                self.root = Path(scratch)
+                decision = json.dumps({"allow": allow})
+                values, _ = self.collect({"gate": "success" if allow else "failure"}, {"attestation-chain.json": "[]", "gate-decision.json": decision})
+                result = self.publish(values, "success" if allow else "failure")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((self.root / "signed/gate-decision.json").read_text(), decision)
+                self.assertEqual(set(path.name for path in (self.root / "signed").iterdir()), {"sign-status.json", "attestation-chain.json", "gate-decision.json"})
+
+    def test_release_precheck_uses_decoded_boolean_allow(self):
+        step = next(step for step in self.workflow["jobs"]["publish"]["steps"] if step.get("name") == "Require an allow decision before release build")
+        self.assertEqual(step["if"], "needs.sign.result == 'success'")
+        (self.root / "signed").mkdir()
+        path = self.root / "signed/gate-decision.json"
+        for value, accepted in [("true", True), ("false", False), ('"true"', False), ("null", False)]:
+            with self.subTest(allow=value):
+                path.write_text('{"allow":' + value + "}")
+                result = subprocess.run(["bash", "-euo", "pipefail", "-c", step["run"].replace("${{ runner.temp }}", str(self.root))], capture_output=True)
+                self.assertEqual(result.returncode == 0, accepted)
 
 
 if __name__ == "__main__":
