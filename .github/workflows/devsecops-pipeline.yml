@@ -12,8 +12,9 @@ permissions:
 env:
   # Per-check-type signing keys are stored as GitHub Actions secrets.
   # Generate a key pair for each check with: go run ./cmd/keygen
-  # Secrets required: SAST_SIGNING_KEY, SCA_SIGNING_KEY, CONFIG_SIGNING_KEY, SECRET_SCANNING_SIGNING_KEY
-  # Public key secrets for gate verification: SAST_PUBLIC_KEY, SCA_PUBLIC_KEY, CONFIG_PUBLIC_KEY, SECRET_SCANNING_PUBLIC_KEY
+  # Production secrets: {SAST,SCA,CONFIG,SECRET_SCANNING}_{SIGNING_KEY,PUBLIC_KEY}.
+  # Only push to main selects production; PRs and develop select TEST_ names.
+  # Missing selected secrets fail closed, with no fallback to production keys.
   ARTIFACT_REF: ${{ github.sha }}
   APP_NAME: ${{ github.repository }}
   TRIVY_VERSION: '0.74.0'
@@ -69,6 +70,12 @@ jobs:
   # itself.
 
   sast:
+    outputs:
+      part0: ${{ steps.report.outputs.part0 }}
+      part1: ${{ steps.report.outputs.part1 }}
+      part2: ${{ steps.report.outputs.part2 }}
+      part3: ${{ steps.report.outputs.part3 }}
+      sha256: ${{ steps.report.outputs.sha256_0 }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -97,6 +104,13 @@ jobs:
           semgrep scan --config auto --disable-nosem --json --output semgrep-raw.json .
           jq -e . semgrep-raw.json >/dev/null
 
+      - name: Encode report for isolated signing
+        id: report
+        run: |
+          mkdir "${{ runner.temp }}/f1-report"
+          cp -P -- semgrep-raw.json "${{ runner.temp }}/f1-report/"
+          python3 .ci/transport.py encode "${{ runner.temp }}/f1-report" semgrep-raw.json
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sast-raw
@@ -105,6 +119,12 @@ jobs:
           if-no-files-found: error
 
   sca:
+    outputs:
+      part0: ${{ steps.report.outputs.part0 }}
+      part1: ${{ steps.report.outputs.part1 }}
+      part2: ${{ steps.report.outputs.part2 }}
+      part3: ${{ steps.report.outputs.part3 }}
+      sha256: ${{ steps.report.outputs.sha256_0 }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -135,6 +155,13 @@ jobs:
           trivy fs --format json --output trivy-raw.json --scanners vuln --exit-code 0 .
           jq -e . trivy-raw.json >/dev/null
 
+      - name: Encode report for isolated signing
+        id: report
+        run: |
+          mkdir "${{ runner.temp }}/f1-report"
+          cp -P -- trivy-raw.json "${{ runner.temp }}/f1-report/"
+          python3 .ci/transport.py encode "${{ runner.temp }}/f1-report" trivy-raw.json
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sca-raw
@@ -143,6 +170,12 @@ jobs:
           if-no-files-found: error
 
   config:
+    outputs:
+      part0: ${{ steps.report.outputs.part0 }}
+      part1: ${{ steps.report.outputs.part1 }}
+      part2: ${{ steps.report.outputs.part2 }}
+      part3: ${{ steps.report.outputs.part3 }}
+      sha256: ${{ steps.report.outputs.sha256_0 }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -165,6 +198,13 @@ jobs:
           mv checkov-out/results_json.json checkov-raw.json
           jq -e . checkov-raw.json >/dev/null
 
+      - name: Encode report for isolated signing
+        id: report
+        run: |
+          mkdir "${{ runner.temp }}/f1-report"
+          cp -P -- checkov-raw.json "${{ runner.temp }}/f1-report/"
+          python3 .ci/transport.py encode "${{ runner.temp }}/f1-report" checkov-raw.json
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: config-raw
@@ -173,6 +213,12 @@ jobs:
           if-no-files-found: error
 
   secret:
+    outputs:
+      part0: ${{ steps.report.outputs.part0 }}
+      part1: ${{ steps.report.outputs.part1 }}
+      part2: ${{ steps.report.outputs.part2 }}
+      part3: ${{ steps.report.outputs.part3 }}
+      sha256: ${{ steps.report.outputs.sha256_0 }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -205,6 +251,13 @@ jobs:
           gitleaks detect --report-format json --report-path gitleaks-raw.json --exit-code 0
           jq -e . gitleaks-raw.json >/dev/null
 
+      - name: Encode report for isolated signing
+        id: report
+        run: |
+          mkdir "${{ runner.temp }}/f1-report"
+          cp -P -- gitleaks-raw.json "${{ runner.temp }}/f1-report/"
+          python3 .ci/transport.py encode "${{ runner.temp }}/f1-report" gitleaks-raw.json
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: secret-raw
@@ -212,75 +265,99 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # Deploy gate: build the attestation tooling from this same checkout,
-  # normalize + sign each scanner's raw output, verify the chain, and
-  # evaluate the bundled policy.
-  deploy-gate:
+  # DG-8 design A: only run steps and this commit's local composites can
+  # execute in the key-holding job. No third-party actions or shared caches.
+  sign:
     needs: [test, sast, sca, config, secret]
     runs-on: ubuntu-latest
     environment: production
-    # This job builds the attestation tooling from source and holds every
-    # signing key secret (SAST_SIGNING_KEY, SCA_SIGNING_KEY, ...). On
-    # pull_request, GitHub exposes secrets to the workflow even for forked
-    # PRs when the base workflow defines them, so a forked PR could exfil
-    # every signing key through a modified pipeline step unless this job is
-    # gated. Only run for push events (this repo's own branches) or a
-    # pull_request whose head repository is this same repository (an
-    # internal branch, not a fork); dependabot/renovate PRs are excluded
-    # the same way the scanner jobs above already are.
+    # Internal PRs use test keys; fork and bot guards remain unchanged.
     if: >-
       (github.event_name == 'push' ||
         (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) &&
       github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     permissions:
       contents: read
-      id-token: write
-      attestations: write
-
+      actions: read
+    outputs:
+      part0: ${{ steps.bundle.outputs.part0 }}
+      part1: ${{ steps.bundle.outputs.part1 }}
+      part2: ${{ steps.bundle.outputs.part2 }}
+      part3: ${{ steps.bundle.outputs.part3 }}
+      chain_sha256: ${{ steps.bundle.outputs.sha256_0 }}
+      decision_sha256: ${{ steps.bundle.outputs.sha256_1 }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Fetch exact source without persisted credentials
+        run: |
+          set -euo pipefail
+          git init .
+          git -c credential.helper= fetch --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
+      - name: Check selected signing and verification secrets
+        env:
+          KEY_SET: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || 'test' }}
+          SAST_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_SIGNING_KEY' || 'TEST_SAST_SIGNING_KEY'] }}
+          SCA_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_SIGNING_KEY' || 'TEST_SCA_SIGNING_KEY'] }}
+          CONFIG_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_SIGNING_KEY' || 'TEST_CONFIG_SIGNING_KEY'] }}
+          SECRET_SCANNING_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_SIGNING_KEY' || 'TEST_SECRET_SCANNING_SIGNING_KEY'] }}
+          SAST_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_PUBLIC_KEY' || 'TEST_SAST_PUBLIC_KEY'] }}
+          SCA_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_PUBLIC_KEY' || 'TEST_SCA_PUBLIC_KEY'] }}
+          CONFIG_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_PUBLIC_KEY' || 'TEST_CONFIG_PUBLIC_KEY'] }}
+          SECRET_SCANNING_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_PUBLIC_KEY' || 'TEST_SECRET_SCANNING_PUBLIC_KEY'] }}
+        run: bash .ci/check-keys.sh
 
-      # version: source builds keygen/attest/verify/gate from this exact
-      # checkout with `go build`, so the binaries evaluating the policy are
-      # built from the same commit as the bundled deploy.rego they embed.
+      - name: Install pinned Go in a fresh directory
+        run: bash .ci/install-go.sh
+
+      - name: Download and verify modules before building
+        run: |
+          go mod download
+          go mod verify
+
       - uses: ./actions/setup
         with:
           version: source
 
-      # Each scanner's raw output is downloaded by its exact artifact name
-      # into its own directory under runner.temp, not merged into a single
-      # directory (let alone the checkout). A `merge-multiple: true`
-      # download lets any artifact silently overwrite a same-named file
-      # from another artifact - including one uploaded by a step this
-      # workflow does not control, if the artifact name pattern is ever
-      # widened - which would let a forged raw report substitute for a real
-      # scanner's output before signing. Downloading by exact name into a
-      # dedicated directory removes that ambiguity entirely.
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: sast-raw
-          path: ${{ runner.temp }}/raw/sast
+      - name: Prepare raw report parent directory
+        run: mkdir "${{ runner.temp }}/raw"
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: sca-raw
-          path: ${{ runner.temp }}/raw/sca
+      - name: Decode and verify sast report
+        env:
+          PART0: ${{ needs.sast.outputs.part0 }}
+          PART1: ${{ needs.sast.outputs.part1 }}
+          PART2: ${{ needs.sast.outputs.part2 }}
+          PART3: ${{ needs.sast.outputs.part3 }}
+          SHA256_0: ${{ needs.sast.outputs.sha256 }}
+        run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/sast" semgrep-raw.json
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: config-raw
-          path: ${{ runner.temp }}/raw/config
+      - name: Decode and verify sca report
+        env:
+          PART0: ${{ needs.sca.outputs.part0 }}
+          PART1: ${{ needs.sca.outputs.part1 }}
+          PART2: ${{ needs.sca.outputs.part2 }}
+          PART3: ${{ needs.sca.outputs.part3 }}
+          SHA256_0: ${{ needs.sca.outputs.sha256 }}
+        run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/sca" trivy-raw.json
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: secret-raw
-          path: ${{ runner.temp }}/raw/secret
+      - name: Decode and verify config report
+        env:
+          PART0: ${{ needs.config.outputs.part0 }}
+          PART1: ${{ needs.config.outputs.part1 }}
+          PART2: ${{ needs.config.outputs.part2 }}
+          PART3: ${{ needs.config.outputs.part3 }}
+          SHA256_0: ${{ needs.config.outputs.sha256 }}
+        run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/config" checkov-raw.json
+
+      - name: Decode and verify secret report
+        env:
+          PART0: ${{ needs.secret.outputs.part0 }}
+          PART1: ${{ needs.secret.outputs.part1 }}
+          PART2: ${{ needs.secret.outputs.part2 }}
+          PART3: ${{ needs.secret.outputs.part3 }}
+          SHA256_0: ${{ needs.secret.outputs.sha256 }}
+        run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/secret" gitleaks-raw.json
 
       # fail-on is passed explicitly here (matching the CLI/action default
       # of "high") so the effective threshold is legible directly in this
@@ -290,28 +367,28 @@ jobs:
         with:
           tool: semgrep
           raw-result: ${{ runner.temp }}/raw/sast/semgrep-raw.json
-          signing-key: ${{ secrets.SAST_SIGNING_KEY }}
+          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_SIGNING_KEY' || 'TEST_SAST_SIGNING_KEY'] }}
           fail-on: high
 
       - uses: ./actions/normalize-sign
         with:
           tool: trivy
           raw-result: ${{ runner.temp }}/raw/sca/trivy-raw.json
-          signing-key: ${{ secrets.SCA_SIGNING_KEY }}
+          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_SIGNING_KEY' || 'TEST_SCA_SIGNING_KEY'] }}
           fail-on: high
 
       - uses: ./actions/normalize-sign
         with:
           tool: checkov
           raw-result: ${{ runner.temp }}/raw/config/checkov-raw.json
-          signing-key: ${{ secrets.CONFIG_SIGNING_KEY }}
+          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_SIGNING_KEY' || 'TEST_CONFIG_SIGNING_KEY'] }}
           fail-on: high
 
       - uses: ./actions/normalize-sign
         with:
           tool: gitleaks
           raw-result: ${{ runner.temp }}/raw/secret/gitleaks-raw.json
-          signing-key: ${{ secrets.SECRET_SCANNING_SIGNING_KEY }}
+          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_SIGNING_KEY' || 'TEST_SECRET_SCANNING_SIGNING_KEY'] }}
           fail-on: high
 
       # policy-hash pins the SHA-256 of the bundled deploy.rego, recomputed
@@ -328,10 +405,10 @@ jobs:
         with:
           chain: attestation-chain.json
           authorized-signers: >-
-            sast=${{ secrets.SAST_PUBLIC_KEY }},
-            sca=${{ secrets.SCA_PUBLIC_KEY }},
-            config=${{ secrets.CONFIG_PUBLIC_KEY }},
-            secret=${{ secrets.SECRET_SCANNING_PUBLIC_KEY }}
+            sast=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_PUBLIC_KEY' || 'TEST_SAST_PUBLIC_KEY'] }},
+            sca=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_PUBLIC_KEY' || 'TEST_SCA_PUBLIC_KEY'] }},
+            config=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_PUBLIC_KEY' || 'TEST_CONFIG_PUBLIC_KEY'] }},
+            secret=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_PUBLIC_KEY' || 'TEST_SECRET_SCANNING_PUBLIC_KEY'] }}
           policy-hash: d90ce4eb57a3ce0b208037dba73c10959f5e2d16b2f418311da2fe117074aa0a
           fail-on-severity: high
           target-ref: ${{ github.sha }}
@@ -340,17 +417,54 @@ jobs:
           output: gate-decision.json
           expect: allow
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - name: Encode chain and decision for publishing
+        id: bundle
         if: always()
+        run: |
+          mkdir "${{ runner.temp }}/f1-signed"
+          cp -P -- attestation-chain.json gate-decision.json "${{ runner.temp }}/f1-signed/"
+          python3 .ci/transport.py encode "${{ runner.temp }}/f1-signed" attestation-chain.json gate-decision.json
+
+  # This fresh runner references no private keys. Failed gate decisions are
+  # uploaded for diagnosis, but only a successful sign job builds a release.
+  publish:
+    needs: [sign]
+    if: ${{ always() && needs.sign.result != 'skipped' && needs.sign.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Decode and verify chain and decision
+        env:
+          PART0: ${{ needs.sign.outputs.part0 }}
+          PART1: ${{ needs.sign.outputs.part1 }}
+          PART2: ${{ needs.sign.outputs.part2 }}
+          PART3: ${{ needs.sign.outputs.part3 }}
+          SHA256_0: ${{ needs.sign.outputs.chain_sha256 }}
+          SHA256_1: ${{ needs.sign.outputs.decision_sha256 }}
+        run: python3 .ci/transport.py decode "${{ runner.temp }}/signed" attestation-chain.json gate-decision.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: attestation-chain-${{ github.sha }}
           path: |
-            attestation-chain.json
-            gate-decision.json
+            ${{ runner.temp }}/signed/attestation-chain.json
+            ${{ runner.temp }}/signed/gate-decision.json
           retention-days: 90
           if-no-files-found: error
 
       - name: Build release binaries
+        if: needs.sign.result == 'success'
         run: |
           mkdir -p release
           go build -o ./release/keygen ./cmd/keygen
@@ -359,16 +473,17 @@ jobs:
           go build -o ./release/gate   ./cmd/gate
 
       - name: Package release artifacts
+        if: needs.sign.result == 'success'
         run: |
-          cp attestation-chain.json release/
-          cp gate-decision.json     release/
+          cp "${{ runner.temp }}/signed/attestation-chain.json" release/
+          cp "${{ runner.temp }}/signed/gate-decision.json" release/
           echo "$ARTIFACT_REF" > release/COMMIT
 
       # Build provenance attestation is a GitHub-native feature (backed by
       # Sigstore/Rekor via github.com) with no Forgejo equivalent, so it
       # only runs when this workflow is actually executing on github.com.
       - name: Attest release provenance
-        if: github.server_url == 'https://github.com'
+        if: needs.sign.result == 'success' && github.server_url == 'https://github.com'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: |
@@ -378,6 +493,7 @@ jobs:
             release/gate
 
       - name: Upload release artifacts
+        if: needs.sign.result == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-${{ github.sha }}

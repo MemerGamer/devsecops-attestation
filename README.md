@@ -43,7 +43,7 @@ The system applies zero-trust principles throughout the attestation lifecycle:
 
 | Control | Mechanism |
 |---------|-----------|
-| Per-check-type signing keys | Each check type (sast, sca, config, secret) uses a dedicated Ed25519 key pair. A compromised SAST key cannot forge SCA attestations. |
+| Per-check-type signing keys | Each check type (sast, sca, config, secret) uses a dedicated Ed25519 key pair. One signing job holds all four private keys, so a compromise of that job exposes every check type. |
 | Cryptographically bound signer identity | `SignerID` (e.g. `github-runner:Linux`) is included in the canonical payload and covered by the Ed25519 signature. Injection after signing is detectable. |
 | Timestamp enforcement | `VerifyChainWithOptions` rejects future timestamps (60 s clock skew tolerance), timestamp regressions, and attestations older than `--max-age`. |
 | Commit binding | `VerifyChainWithOptions` rejects a chain whose attestations disagree with each other on `result.target_ref`. `gate evaluate --target-ref <ref>` (and `--subject <name>`) additionally bind the whole chain to the caller's expected commit and subject, enforced in Go after signer authorization and before policy evaluation. |
