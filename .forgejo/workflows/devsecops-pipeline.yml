@@ -1,0 +1,597 @@
+name: DevSecOps Attested Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  # Per-check-type signing keys are stored as GitHub Actions secrets.
+  # Generate a key pair for each check with: go run ./cmd/keygen
+  # Production secrets: {SAST,SCA,CONFIG,SECRET_SCANNING}_{SIGNING_KEY,PUBLIC_KEY}.
+  # Only push to main selects production; PRs and develop select TEST_ names.
+  # Missing selected secrets fail closed, with no fallback to production keys.
+  ARTIFACT_REF: ${{ github.sha }}
+  APP_NAME: ${{ github.repository }}
+  TRIVY_VERSION: '0.74.0'
+  GITLEAKS_VERSION: '8.30.1'
+  SEMGREP_VERSION: '1.177.0'
+  CHECKOV_VERSION: '3.3.19'
+
+jobs:
+  # Run the full unit test suite before any security or signing steps.
+  test:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run unit tests with coverage
+        run: |
+          go test -coverprofile=coverage.txt ./...
+          go tool cover -func=coverage.txt | tail -1
+
+      - name: Run unit tests with race detector
+        run: go test -race ./...
+
+      # Codecov's upload requires an outbound network call to codecov.io and
+      # (for private repos) an org token that only exists on github.com.
+      # Skip it on any other Actions-compatible forge (e.g. Forgejo mirrors)
+      # so the job does not fail there for reasons unrelated to test health.
+      - name: Upload coverage reports to Codecov
+        if: github.server_url == 'https://github.com'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.txt
+
+      - name: Upload coverage report
+        uses: https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5 (Forgejo fork; upstream v4+ is not supported on Forgejo)
+        with:
+          name: coverage-${{ github.sha }}
+          path: coverage.txt
+          retention-days: 7
+          if-no-files-found: error
+
+  # actions/* composite actions are the product this repository ships to
+  # consumers. Dogfooding them here (instead of hand-rolled steps) is both
+  # the integration test for the actions and the pipeline this repo runs on
+  # itself.
+
+  sast:
+    outputs:
+      part0: ${{ steps.report.outputs.part0 }}
+      part1: ${{ steps.report.outputs.part1 }}
+      part2: ${{ steps.report.outputs.part2 }}
+      part3: ${{ steps.report.outputs.part3 }}
+      sha256: ${{ steps.report.outputs.sha256_0 }}
+      manifest: ${{ steps.report.outputs.manifest }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run SAST (semgrep)
+        run: |
+          set -euo pipefail
+          # Forgejo port: PEP 668 and Debian-owned packages in the 24.04 job
+          # image; the tool goes into its own virtual environment.
+          python3 -m venv "$RUNNER_TEMP/venv-semgrep" 2>/dev/null || { apt-get update -qq && apt-get install -y -qq python3-venv >/dev/null && python3 -m venv "$RUNNER_TEMP/venv-semgrep"; }
+          "$RUNNER_TEMP/venv-semgrep/bin/pip" install --quiet "semgrep==${SEMGREP_VERSION}"
+          export PATH="$RUNNER_TEMP/venv-semgrep/bin:$PATH"
+          rm -f semgrep-raw.json
+          # semgrep scan --json exits 0 both when it finds nothing AND when
+          # it finds something, as long as --error is not passed (which
+          # this invocation deliberately omits: the pass/fail decision
+          # belongs to the gate, not this step, so findings must not fail
+          # the job). A nonzero exit here is therefore always a genuine
+          # scan failure (fatal error, invalid target/pattern/config,
+          # unparseable rule YAML, ...), never "findings", so it is left to
+          # propagate rather than masked with `|| true`.
+          # --disable-nosem: report findings a `# nosemgrep` comment would
+          # otherwise silently suppress in the raw scan output, so a
+          # suppression comment cannot be used to hide a real finding from
+          # the signed attestation (see actions/README.md's "Scanner
+          # configuration trust" section).
+          semgrep scan --config auto --disable-nosem --json --output semgrep-raw.json .
+          jq -e . semgrep-raw.json >/dev/null
+
+      - name: Encode report for isolated signing
+        id: report
+        run: |
+          mkdir "${{ runner.temp }}/f1-report"
+          cp -P -- semgrep-raw.json "${{ runner.temp }}/f1-report/"
+          python3 .ci/transport.py encode "${{ runner.temp }}/f1-report" semgrep-raw.json
+
+      - uses: https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5 (Forgejo fork; upstream v4+ is not supported on Forgejo)
+        with:
+          name: sast-raw
+          path: semgrep-raw.json
+          retention-days: 7
+          if-no-files-found: error
+
+  sca:
+    outputs:
+      part0: ${{ steps.report.outputs.part0 }}
+      part1: ${{ steps.report.outputs.part1 }}
+      part2: ${{ steps.report.outputs.part2 }}
+      part3: ${{ steps.report.outputs.part3 }}
+      sha256: ${{ steps.report.outputs.sha256_0 }}
+      manifest: ${{ steps.report.outputs.manifest }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install trivy (pinned release, checksum-verified)
+        run: |
+          set -euo pipefail
+          asset="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          checksums="trivy_${TRIVY_VERSION}_checksums.txt"
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${asset}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${checksums}"
+          sha256sum --ignore-missing -c "${checksums}"
+          tar xzf "${asset}" trivy
+          sudo install -m 0755 trivy /usr/local/bin/trivy
+
+      - name: Run SCA (trivy)
+        run: |
+          set -euo pipefail
+          rm -f trivy-raw.json
+          # --exit-code 0 makes trivy always exit 0 for a completed scan,
+          # findings or not (the gate makes the pass/fail decision, not
+          # this step); a nonzero exit is a genuine scan failure and is
+          # left to propagate under the default `bash -e` step shell.
+          trivy fs --format json --output trivy-raw.json --scanners vuln --exit-code 0 .
+          jq -e . trivy-raw.json >/dev/null
+
+      - name: Encode report for isolated signing
+        id: report
+        run: |
+          mkdir "${{ runner.temp }}/f1-report"
+          cp -P -- trivy-raw.json "${{ runner.temp }}/f1-report/"
+          python3 .ci/transport.py encode "${{ runner.temp }}/f1-report" trivy-raw.json
+
+      - uses: https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5 (Forgejo fork; upstream v4+ is not supported on Forgejo)
+        with:
+          name: sca-raw
+          path: trivy-raw.json
+          retention-days: 7
+          if-no-files-found: error
+
+  config:
+    outputs:
+      part0: ${{ steps.report.outputs.part0 }}
+      part1: ${{ steps.report.outputs.part1 }}
+      part2: ${{ steps.report.outputs.part2 }}
+      part3: ${{ steps.report.outputs.part3 }}
+      sha256: ${{ steps.report.outputs.sha256_0 }}
+      manifest: ${{ steps.report.outputs.manifest }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run config check (checkov)
+        run: |
+          set -euo pipefail
+          # Forgejo port: PEP 668 and Debian-owned packages in the 24.04 job
+          # image; the tool goes into its own virtual environment.
+          python3 -m venv "$RUNNER_TEMP/venv-checkov" 2>/dev/null || { apt-get update -qq && apt-get install -y -qq python3-venv >/dev/null && python3 -m venv "$RUNNER_TEMP/venv-checkov"; }
+          "$RUNNER_TEMP/venv-checkov/bin/pip" install --quiet "checkov==${CHECKOV_VERSION}"
+          export PATH="$RUNNER_TEMP/venv-checkov/bin:$PATH"
+          rm -rf checkov-out checkov-raw.json
+          # --soft-fail makes checkov exit 0 on failed checks (the gate
+          # makes the pass/fail decision, not this step); a crash (no
+          # results_json.json produced) is caught below by `mv` failing
+          # under the default `bash -e` step shell. checkov 3.x writes
+          # <output-file-path>/results_json.json, not results.json, when
+          # --output-file-path names a directory.
+          checkov -d . --output json --output-file-path checkov-out --quiet --soft-fail --skip-path pkg/normalize/testdata
+          mv checkov-out/results_json.json checkov-raw.json
+          jq -e . checkov-raw.json >/dev/null
+
+      - name: Encode report for isolated signing
+        id: report
+        run: |
+          mkdir "${{ runner.temp }}/f1-report"
+          cp -P -- checkov-raw.json "${{ runner.temp }}/f1-report/"
+          python3 .ci/transport.py encode "${{ runner.temp }}/f1-report" checkov-raw.json
+
+      - uses: https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5 (Forgejo fork; upstream v4+ is not supported on Forgejo)
+        with:
+          name: config-raw
+          path: checkov-raw.json
+          retention-days: 7
+          if-no-files-found: error
+
+  secret:
+    outputs:
+      part0: ${{ steps.report.outputs.part0 }}
+      part1: ${{ steps.report.outputs.part1 }}
+      part2: ${{ steps.report.outputs.part2 }}
+      part3: ${{ steps.report.outputs.part3 }}
+      sha256: ${{ steps.report.outputs.sha256_0 }}
+      manifest: ${{ steps.report.outputs.manifest }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install gitleaks (pinned release, checksum-verified)
+        run: |
+          set -euo pipefail
+          asset="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          checksums="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${asset}"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 300 -O "${base}/${checksums}"
+          sha256sum --ignore-missing -c "${checksums}"
+          tar xzf "${asset}" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+
+      - name: Run secret scan (gitleaks)
+        run: |
+          set -euo pipefail
+          rm -f gitleaks-raw.json
+          # --exit-code 0 makes gitleaks always exit 0, leaks found or not
+          # (the gate makes the pass/fail decision, not this step); a
+          # nonzero exit is a genuine scan failure and is left to propagate
+          # under the default `bash -e` step shell. The jq check below is a
+          # second line of defense in case a future gitleaks version stops
+          # honoring --exit-code for some failure mode.
+          gitleaks detect --report-format json --report-path gitleaks-raw.json --exit-code 0
+          jq -e . gitleaks-raw.json >/dev/null
+
+      - name: Encode report for isolated signing
+        id: report
+        run: |
+          mkdir "${{ runner.temp }}/f1-report"
+          cp -P -- gitleaks-raw.json "${{ runner.temp }}/f1-report/"
+          python3 .ci/transport.py encode "${{ runner.temp }}/f1-report" gitleaks-raw.json
+
+      - uses: https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5 (Forgejo fork; upstream v4+ is not supported on Forgejo)
+        with:
+          name: secret-raw
+          path: gitleaks-raw.json
+          retention-days: 7
+          if-no-files-found: error
+
+  # DG-8 design A: only run steps and this commit's local composites can
+  # execute in the key-holding job. No third-party actions or shared caches.
+  sign:
+    needs: [test, sast, sca, config, secret]
+    runs-on: ubuntu-latest
+    # Forgejo port: `environment:` is ignored by Forgejo Actions; the key set
+    # is selected by the secret names below.
+    # Internal PRs use test keys; fork and bot guards remain unchanged.
+    if: >-
+      (github.event_name == 'push' ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) &&
+      github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
+    permissions:
+      contents: read
+    outputs:
+      part0: ${{ steps.bundle.outputs.part0 }}
+      part1: ${{ steps.bundle.outputs.part1 }}
+      part2: ${{ steps.bundle.outputs.part2 }}
+      part3: ${{ steps.bundle.outputs.part3 }}
+      manifest: ${{ steps.bundle.outputs.manifest }}
+      status: ${{ steps.bundle.outputs.status }}
+      status_sha256: ${{ steps.bundle.outputs.status_sha256 }}
+    steps:
+      - name: Fetch exact source without persisted credentials
+        id: source
+        run: |
+          set -euo pipefail
+          git init .
+          git -c credential.helper= fetch --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Check selected signing and verification secrets
+        id: keys
+        env:
+          KEY_SET: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || 'test' }}
+          SAST_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_SIGNING_KEY' || 'TEST_SAST_SIGNING_KEY'] }}
+          SCA_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_SIGNING_KEY' || 'TEST_SCA_SIGNING_KEY'] }}
+          CONFIG_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_SIGNING_KEY' || 'TEST_CONFIG_SIGNING_KEY'] }}
+          SECRET_SCANNING_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_SIGNING_KEY' || 'TEST_SECRET_SCANNING_SIGNING_KEY'] }}
+          SAST_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_PUBLIC_KEY' || 'TEST_SAST_PUBLIC_KEY'] }}
+          SCA_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_PUBLIC_KEY' || 'TEST_SCA_PUBLIC_KEY'] }}
+          CONFIG_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_PUBLIC_KEY' || 'TEST_CONFIG_PUBLIC_KEY'] }}
+          SECRET_SCANNING_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_PUBLIC_KEY' || 'TEST_SECRET_SCANNING_PUBLIC_KEY'] }}
+        run: bash .ci/check-keys.sh
+
+      - name: Install pinned Go in a fresh directory
+        id: toolchain
+        run: bash .ci/install-go.sh
+
+      - name: Download and verify modules before building
+        id: modules
+        run: |
+          go mod download
+          go mod verify
+
+      - uses: ./actions/setup
+        id: setup
+        with:
+          version: source
+
+      - name: Prepare raw report parent directory
+        id: raw_directory
+        run: mkdir "${{ runner.temp }}/raw"
+
+      - name: Decode and verify sast report
+        id: decode_sast
+        env:
+          PART0: ${{ needs.sast.outputs.part0 }}
+          PART1: ${{ needs.sast.outputs.part1 }}
+          PART2: ${{ needs.sast.outputs.part2 }}
+          PART3: ${{ needs.sast.outputs.part3 }}
+          MANIFEST: ${{ needs.sast.outputs.manifest }}
+        run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/sast" semgrep-raw.json
+
+      - name: Decode and verify sca report
+        id: decode_sca
+        env:
+          PART0: ${{ needs.sca.outputs.part0 }}
+          PART1: ${{ needs.sca.outputs.part1 }}
+          PART2: ${{ needs.sca.outputs.part2 }}
+          PART3: ${{ needs.sca.outputs.part3 }}
+          MANIFEST: ${{ needs.sca.outputs.manifest }}
+        run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/sca" trivy-raw.json
+
+      - name: Decode and verify config report
+        id: decode_config
+        env:
+          PART0: ${{ needs.config.outputs.part0 }}
+          PART1: ${{ needs.config.outputs.part1 }}
+          PART2: ${{ needs.config.outputs.part2 }}
+          PART3: ${{ needs.config.outputs.part3 }}
+          MANIFEST: ${{ needs.config.outputs.manifest }}
+        run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/config" checkov-raw.json
+
+      - name: Decode and verify secret report
+        id: decode_secret
+        env:
+          PART0: ${{ needs.secret.outputs.part0 }}
+          PART1: ${{ needs.secret.outputs.part1 }}
+          PART2: ${{ needs.secret.outputs.part2 }}
+          PART3: ${{ needs.secret.outputs.part3 }}
+          MANIFEST: ${{ needs.secret.outputs.manifest }}
+        run: python3 .ci/transport.py decode "${{ runner.temp }}/raw/secret" gitleaks-raw.json
+
+      # fail-on is passed explicitly here (matching the CLI/action default
+      # of "high") so the effective threshold is legible directly in this
+      # workflow rather than relying on the action's default staying in
+      # sync with the gate's --fail-on-severity below.
+      - uses: ./actions/normalize-sign
+        id: sign_sast
+        with:
+          tool: semgrep
+          raw-result: ${{ runner.temp }}/raw/sast/semgrep-raw.json
+          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_SIGNING_KEY' || 'TEST_SAST_SIGNING_KEY'] }}
+          fail-on: high
+
+      - uses: ./actions/normalize-sign
+        id: sign_sca
+        with:
+          tool: trivy
+          raw-result: ${{ runner.temp }}/raw/sca/trivy-raw.json
+          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_SIGNING_KEY' || 'TEST_SCA_SIGNING_KEY'] }}
+          fail-on: high
+
+      - uses: ./actions/normalize-sign
+        id: sign_config
+        with:
+          tool: checkov
+          raw-result: ${{ runner.temp }}/raw/config/checkov-raw.json
+          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_SIGNING_KEY' || 'TEST_CONFIG_SIGNING_KEY'] }}
+          fail-on: high
+
+      - uses: ./actions/normalize-sign
+        id: sign_secret
+        with:
+          tool: gitleaks
+          raw-result: ${{ runner.temp }}/raw/secret/gitleaks-raw.json
+          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_SIGNING_KEY' || 'TEST_SECRET_SCANNING_SIGNING_KEY'] }}
+          fail-on: high
+
+      # policy-hash pins the SHA-256 of the bundled deploy.rego, recomputed
+      # with `go run ./cmd/gate policy-hash` (see also `make policy-hash`
+      # in the repository root, which wraps the same command). The binary
+      # evaluating the policy is built from this same commit (version:
+      # source above), so this is defense in depth rather than protection
+      # against drift between a separately-versioned policy file and the
+      # gate binary: it still catches an accidental local edit to
+      # policies/deploy.rego that was never rebuilt into the binary, and it
+      # documents, in the workflow itself, exactly which policy logic this
+      # run is expected to evaluate against.
+      - uses: ./actions/gate
+        id: gate
+        with:
+          chain: attestation-chain.json
+          authorized-signers: >-
+            sast=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_PUBLIC_KEY' || 'TEST_SAST_PUBLIC_KEY'] }},
+            sca=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_PUBLIC_KEY' || 'TEST_SCA_PUBLIC_KEY'] }},
+            config=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_PUBLIC_KEY' || 'TEST_CONFIG_PUBLIC_KEY'] }},
+            secret=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_PUBLIC_KEY' || 'TEST_SECRET_SCANNING_PUBLIC_KEY'] }}
+          policy-hash: d90ce4eb57a3ce0b208037dba73c10959f5e2d16b2f418311da2fe117074aa0a
+          fail-on-severity: high
+          target-ref: ${{ github.sha }}
+          max-age: 24h
+          require-log-entries: "true"
+          output: gate-decision.json
+          expect: allow
+
+      # This bootstrap still emits status if source fetch failed, before any
+      # local script became available. Only known data files are transported.
+      - name: Collect signing status and available diagnostics
+        id: bundle
+        if: always()
+        env:
+          STEP_OUTCOMES: ${{ toJSON(steps) }}
+        run: |
+          python3 - <<'PY_STATUS'
+          import hashlib, json, os
+          steps = json.loads(os.environ["STEP_OUTCOMES"])
+          outcomes = {name: step["outcome"] for name, step in steps.items()}
+          failed = [name for name, outcome in outcomes.items() if outcome == "failure"]
+          gate = outcomes.get("gate", "skipped")
+          success = not failed and gate == "success"
+          if success:
+              message = "sign and gate completed successfully"
+          elif gate == "skipped":
+              message = "sign failed before gate: " + (", ".join(failed) or "signing did not complete") + "; see sign job logs"
+          else:
+              message = "sign failed at " + (", ".join(failed) or "gate") + "; see sign job logs"
+          status = json.dumps({"result": "success" if success else "failure", "message": message, "steps": outcomes}, separators=(",", ":"))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("status=" + status + "\n")
+              output.write("status_sha256=" + hashlib.sha256(status.encode()).hexdigest() + "\n")
+          if not success:
+              print("::error::" + message)
+          PY_STATUS
+          # A partial chain remains useful if normalization/signing or gate
+          # evaluation failed. A source-fetch failure has status alone.
+          if [[ -f .ci/transport.py ]]; then
+            mkdir "${{ runner.temp }}/f1-signed"
+            files=()
+            for name in attestation-chain.json gate-decision.json; do
+              if [[ -e "$name" || -L "$name" ]]; then
+                cp -P -- "$name" "${{ runner.temp }}/f1-signed/"
+                files+=("$name")
+              fi
+            done
+            if (( ${#files[@]} )); then
+              python3 .ci/transport.py encode "${{ runner.temp }}/f1-signed" "${files[@]}"
+            fi
+          fi
+
+  # This fresh runner references no private keys. Failed gate decisions are
+  # uploaded for diagnosis, but only a successful sign job builds a release.
+  publish:
+    needs: [sign]
+    if: ${{ always() && needs.sign.result != 'skipped' && needs.sign.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Restore signing status and verify available diagnostics
+        env:
+          PART0: ${{ needs.sign.outputs.part0 }}
+          PART1: ${{ needs.sign.outputs.part1 }}
+          PART2: ${{ needs.sign.outputs.part2 }}
+          PART3: ${{ needs.sign.outputs.part3 }}
+          MANIFEST: ${{ needs.sign.outputs.manifest }}
+          SIGN_STATUS: ${{ needs.sign.outputs.status }}
+          STATUS_SHA256: ${{ needs.sign.outputs.status_sha256 }}
+          SIGN_RESULT: ${{ needs.sign.result }}
+        run: python3 .ci/publish-diagnostics.py "${{ runner.temp }}/signed"
+
+      - uses: https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5 (Forgejo fork; upstream v4+ is not supported on Forgejo)
+        if: always()
+        with:
+          name: attestation-chain-${{ github.sha }}
+          path: ${{ runner.temp }}/signed/
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Require an allow decision before release build
+        if: needs.sign.result == 'success'
+        run: |
+          jq -e '.allow == true' "${{ runner.temp }}/signed/gate-decision.json" >/dev/null || {
+            echo 'decoded gate decision does not allow release; refusing to build' >&2
+            exit 1
+          }
+
+      - name: Build release binaries
+        if: needs.sign.result == 'success'
+        run: |
+          mkdir -p release
+          go build -o ./release/keygen ./cmd/keygen
+          go build -o ./release/attest ./cmd/sign
+          go build -o ./release/verify ./cmd/verify
+          go build -o ./release/gate   ./cmd/gate
+
+      - name: Package release artifacts
+        if: needs.sign.result == 'success'
+        run: |
+          cp "${{ runner.temp }}/signed/attestation-chain.json" release/
+          cp "${{ runner.temp }}/signed/gate-decision.json" release/
+          echo "$ARTIFACT_REF" > release/COMMIT
+
+      # Build provenance attestation is a GitHub-native feature (backed by
+      # Sigstore/Rekor via github.com) with no Forgejo equivalent, so it
+      # only runs when this workflow is actually executing on github.com.
+      - name: Attest release provenance
+        if: needs.sign.result == 'success' && github.server_url == 'https://github.com'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: |
+            release/keygen
+            release/attest
+            release/verify
+            release/gate
+
+      - name: Upload release artifacts
+        if: needs.sign.result == 'success'
+        uses: https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5 (Forgejo fork; upstream v4+ is not supported on Forgejo)
+        with:
+          name: release-${{ github.sha }}
+          path: release/
+          retention-days: 30
+          if-no-files-found: error
+
+  # Exercises actions/test/run-local.sh (build from source, sign, verify,
+  # gate, shellcheck, action.yml YAML validation) on every PR, so a change
+  # to the composite actions themselves is tested before it reaches the
+  # jobs above that depend on them.
+  actions-selftest:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run signing transport, diagnostics and selected-key tests
+        run: python3 .ci/test/test_transport.py
+
+      - name: Run composite actions self-test
+        run: bash actions/test/run-local.sh
