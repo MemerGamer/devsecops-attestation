@@ -37,13 +37,23 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Run unit tests with coverage
+      # Forgejo port: job containers run as root, so the tests that expect
+      # permission errors (read-only directories, unwritable outputs) would
+      # pass the write and fail. Run the tests as an unprivileged user, as
+      # on GitHub's hosted runner.
+      - name: Run unit tests with coverage (unprivileged user)
         run: |
-          go test -coverprofile=coverage.txt ./...
-          go tool cover -func=coverage.txt | tail -1
+          set -euo pipefail
+          id ci >/dev/null 2>&1 || useradd -m ci
+          chown -R ci: "$GITHUB_WORKSPACE"
+          runuser -u ci -- env PATH="$(dirname "$(command -v go)"):/usr/local/bin:/usr/bin:/bin" HOME=/home/ci \
+            bash -c 'go test -coverprofile=coverage.txt ./... && go tool cover -func=coverage.txt | tail -1'
 
-      - name: Run unit tests with race detector
-        run: go test -race ./...
+      - name: Run unit tests with race detector (unprivileged user)
+        run: |
+          set -euo pipefail
+          runuser -u ci -- env PATH="$(dirname "$(command -v go)"):/usr/local/bin:/usr/bin:/bin" HOME=/home/ci \
+            go test -race ./...
 
       # Codecov's upload requires an outbound network call to codecov.io and
       # (for private repos) an org token that only exists on github.com.
