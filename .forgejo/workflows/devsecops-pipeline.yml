@@ -600,6 +600,10 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Forgejo port: the job image has no PyYAML (GitHub's hosted image has).
+      - name: Install PyYAML for the transport tests
+        run: python3 -c 'import yaml' 2>/dev/null || (apt-get update -qq && apt-get install -y -qq python3-yaml >/dev/null)
+
       - name: Run signing transport, diagnostics and selected-key tests
         run: python3 .ci/test/test_transport.py
 
