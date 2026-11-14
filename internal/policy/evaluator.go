@@ -89,38 +89,33 @@ func (e *Evaluator) Evaluate(ctx context.Context, input types.PolicyInput) (*typ
 		regoOpts = append(regoOpts, rego.Store(store))
 	}
 
-	allowQuery := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.allow")}, regoOpts...)...)
-	denyQuery := rego.New(append([]func(*rego.Rego){rego.Query("data.devsecops.gate.deny_reasons")}, regoOpts...)...)
-
-	// Evaluate allow.
-	allowRS, err := allowQuery.Eval(ctx)
+	// Select only the two gate rules. Array comprehensions keep an undefined
+	// rule from suppressing the other result and avoid evaluating unrelated rules.
+	query := rego.New(append([]func(*rego.Rego){rego.Query(
+		"a := [x | x := data.devsecops.gate.allow]; d := [y | y := data.devsecops.gate.deny_reasons]",
+	)}, regoOpts...)...)
+	rs, err := query.Eval(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("evaluating allow policy: %w", err)
+		return nil, fmt.Errorf("evaluating gate policy: %w", err)
 	}
 	allow := false
-	if len(allowRS) > 0 && len(allowRS[0].Expressions) > 0 {
-		allow, _ = allowRS[0].Expressions[0].Value.(bool)
-	}
-
-	// Evaluate deny reasons.
-	denyRS, err := denyQuery.Eval(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("evaluating deny_reasons policy: %w", err)
-	}
 	var reasons []string
-	if len(denyRS) > 0 && len(denyRS[0].Expressions) > 0 {
-		v := denyRS[0].Expressions[0].Value
-		switch set := v.(type) {
-		case map[string]interface{}:
-			// OPA with future.keywords syntax: set elements are map keys
-			for k := range set {
-				reasons = append(reasons, k)
-			}
-		case []interface{}:
-			// OPA with import rego.v1 syntax: set is serialized as array
-			for _, elem := range set {
-				if s, ok := elem.(string); ok {
-					reasons = append(reasons, s)
+	if len(rs) > 0 {
+		if values, _ := rs[0].Bindings["a"].([]interface{}); len(values) > 0 {
+			allow, _ = values[0].(bool)
+		}
+		if values, _ := rs[0].Bindings["d"].([]interface{}); len(values) > 0 {
+			switch set := values[0].(type) {
+			case map[string]interface{}:
+				// Preserve the object-key encoding accepted by the two-query evaluator.
+				for k := range set {
+					reasons = append(reasons, k)
+				}
+			case []interface{}:
+				for _, elem := range set {
+					if s, ok := elem.(string); ok {
+						reasons = append(reasons, s)
+					}
 				}
 			}
 		}
