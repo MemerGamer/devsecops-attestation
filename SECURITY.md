@@ -60,7 +60,7 @@ go run ./cmd/gate policy-hash --policy policies/deploy.rego
 ```
 
 Paste the output hex into the `--policy-hash` argument in
-`.github/workflows/devsecops-pipeline.yml`. A mismatch causes the gate to exit 1
+`.forgejo/workflows/devsecops-pipeline.yml`. A mismatch causes the gate to exit 1
 before OPA loads the policy.
 
 The policy file is read exactly once per `gate evaluate` invocation: the same
@@ -147,7 +147,7 @@ policy-checked; treat it as an audit trail, not an authorization mechanism.
 
 ### Deploy Gate Job: Secret Exposure and Protected Environments
 
-`.github/workflows/devsecops-pipeline.yml`'s `deploy-gate` job builds the
+`.forgejo/workflows/devsecops-pipeline.yml`'s `deploy-gate` job builds the
 attestation tooling from source and holds every per-check-type signing key
 secret. GitHub exposes secrets to a `pull_request`-triggered job even for a
 forked PR when the base repository's workflow defines them, so this job

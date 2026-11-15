@@ -2,19 +2,24 @@ name: DevSecOps Attested Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 env:
-  # Per-check-type signing keys are stored as GitHub Actions secrets.
+  # Per-check-type signing keys are stored as Forgejo Actions secrets.
   # Generate a key pair for each check with: go run ./cmd/keygen
-  # Production secrets: {SAST,SCA,CONFIG,SECRET_SCANNING}_{SIGNING_KEY,PUBLIC_KEY}.
-  # Only push to main selects production; PRs and develop select TEST_ names.
-  # Missing selected secrets fail closed, with no fallback to production keys.
+  # Forgejo holds TEST keys only (H-8 closed: no production keys on Forgejo):
+  # TEST_{SAST,SCA,CONFIG,SECRET_SCANNING}_{SIGNING_KEY,PUBLIC_KEY}, on every event.
+  # Missing secrets fail closed; there is no production key set to fall back to.
   ARTIFACT_REF: ${{ github.sha }}
   APP_NAME: ${{ github.repository }}
   TRIVY_VERSION: '0.74.0'
@@ -292,11 +297,10 @@ jobs:
   sign:
     needs: [test, sast, sca, config, secret]
     runs-on: ubuntu-latest
-    # Forgejo port: `environment:` is ignored by Forgejo Actions; the key set
-    # is selected by the secret names below.
-    # Internal PRs use test keys; fork and bot guards remain unchanged.
+    # Forgejo port: no `environment:` routing (Forgejo ignores it). Every event
+    # uses the TEST key set; fork PRs and bots never reach this job.
     if: >-
-      (github.event_name == 'push' ||
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
         (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) &&
       github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     permissions:
@@ -322,15 +326,15 @@ jobs:
       - name: Check selected signing and verification secrets
         id: keys
         env:
-          KEY_SET: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || 'test' }}
-          SAST_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_SIGNING_KEY' || 'TEST_SAST_SIGNING_KEY'] }}
-          SCA_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_SIGNING_KEY' || 'TEST_SCA_SIGNING_KEY'] }}
-          CONFIG_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_SIGNING_KEY' || 'TEST_CONFIG_SIGNING_KEY'] }}
-          SECRET_SCANNING_SIGNING_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_SIGNING_KEY' || 'TEST_SECRET_SCANNING_SIGNING_KEY'] }}
-          SAST_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_PUBLIC_KEY' || 'TEST_SAST_PUBLIC_KEY'] }}
-          SCA_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_PUBLIC_KEY' || 'TEST_SCA_PUBLIC_KEY'] }}
-          CONFIG_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_PUBLIC_KEY' || 'TEST_CONFIG_PUBLIC_KEY'] }}
-          SECRET_SCANNING_PUBLIC_KEY: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_PUBLIC_KEY' || 'TEST_SECRET_SCANNING_PUBLIC_KEY'] }}
+          KEY_SET: test
+          SAST_SIGNING_KEY: ${{ secrets.TEST_SAST_SIGNING_KEY }}
+          SCA_SIGNING_KEY: ${{ secrets.TEST_SCA_SIGNING_KEY }}
+          CONFIG_SIGNING_KEY: ${{ secrets.TEST_CONFIG_SIGNING_KEY }}
+          SECRET_SCANNING_SIGNING_KEY: ${{ secrets.TEST_SECRET_SCANNING_SIGNING_KEY }}
+          SAST_PUBLIC_KEY: ${{ secrets.TEST_SAST_PUBLIC_KEY }}
+          SCA_PUBLIC_KEY: ${{ secrets.TEST_SCA_PUBLIC_KEY }}
+          CONFIG_PUBLIC_KEY: ${{ secrets.TEST_CONFIG_PUBLIC_KEY }}
+          SECRET_SCANNING_PUBLIC_KEY: ${{ secrets.TEST_SECRET_SCANNING_PUBLIC_KEY }}
         run: bash .ci/check-keys.sh
 
       - name: Install pinned Go in a fresh directory
@@ -401,7 +405,7 @@ jobs:
         with:
           tool: semgrep
           raw-result: ${{ runner.temp }}/raw/sast/semgrep-raw.json
-          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_SIGNING_KEY' || 'TEST_SAST_SIGNING_KEY'] }}
+          signing-key: ${{ secrets.TEST_SAST_SIGNING_KEY }}
           fail-on: high
 
       - uses: ./actions/normalize-sign
@@ -409,7 +413,7 @@ jobs:
         with:
           tool: trivy
           raw-result: ${{ runner.temp }}/raw/sca/trivy-raw.json
-          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_SIGNING_KEY' || 'TEST_SCA_SIGNING_KEY'] }}
+          signing-key: ${{ secrets.TEST_SCA_SIGNING_KEY }}
           fail-on: high
 
       - uses: ./actions/normalize-sign
@@ -417,7 +421,7 @@ jobs:
         with:
           tool: checkov
           raw-result: ${{ runner.temp }}/raw/config/checkov-raw.json
-          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_SIGNING_KEY' || 'TEST_CONFIG_SIGNING_KEY'] }}
+          signing-key: ${{ secrets.TEST_CONFIG_SIGNING_KEY }}
           fail-on: high
 
       - uses: ./actions/normalize-sign
@@ -425,7 +429,7 @@ jobs:
         with:
           tool: gitleaks
           raw-result: ${{ runner.temp }}/raw/secret/gitleaks-raw.json
-          signing-key: ${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_SIGNING_KEY' || 'TEST_SECRET_SCANNING_SIGNING_KEY'] }}
+          signing-key: ${{ secrets.TEST_SECRET_SCANNING_SIGNING_KEY }}
           fail-on: high
 
       # policy-hash pins the SHA-256 of the bundled deploy.rego, recomputed
@@ -443,10 +447,10 @@ jobs:
         with:
           chain: attestation-chain.json
           authorized-signers: >-
-            sast=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SAST_PUBLIC_KEY' || 'TEST_SAST_PUBLIC_KEY'] }},
-            sca=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SCA_PUBLIC_KEY' || 'TEST_SCA_PUBLIC_KEY'] }},
-            config=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'CONFIG_PUBLIC_KEY' || 'TEST_CONFIG_PUBLIC_KEY'] }},
-            secret=${{ secrets[github.event_name == 'push' && github.ref == 'refs/heads/main' && 'SECRET_SCANNING_PUBLIC_KEY' || 'TEST_SECRET_SCANNING_PUBLIC_KEY'] }}
+            sast=${{ secrets.TEST_SAST_PUBLIC_KEY }},
+            sca=${{ secrets.TEST_SCA_PUBLIC_KEY }},
+            config=${{ secrets.TEST_CONFIG_PUBLIC_KEY }},
+            secret=${{ secrets.TEST_SECRET_SCANNING_PUBLIC_KEY }}
           policy-hash: d90ce4eb57a3ce0b208037dba73c10959f5e2d16b2f418311da2fe117074aa0a
           fail-on-severity: high
           target-ref: ${{ github.sha }}

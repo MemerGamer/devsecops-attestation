@@ -101,7 +101,7 @@ go run ./cmd/gate evaluate \
 ## Updating the Deploy Policy
 
 If you modify `policies/deploy.rego`, you must update the `--policy-hash`
-value in `.github/workflows/devsecops-pipeline.yml`:
+value in `.forgejo/workflows/devsecops-pipeline.yml`:
 
 ```shell
 go run ./cmd/gate policy-hash --policy policies/deploy.rego

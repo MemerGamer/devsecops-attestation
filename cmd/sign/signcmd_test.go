@@ -75,7 +75,7 @@ func TestBareRootFormStillWorks(t *testing.T) {
 }
 
 // TestSignSubcommandMirrorsWorkflowFlags mirrors the exact flag set used by
-// .github/workflows/devsecops-pipeline.yml's `./bin/attest sign` steps,
+// .forgejo/workflows/devsecops-pipeline.yml's `./bin/attest sign` steps,
 // including --signer-id and --log-entry, to prove the fix end to end.
 func TestSignSubcommandMirrorsWorkflowFlags(t *testing.T) {
 	dir := t.TempDir()

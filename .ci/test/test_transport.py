@@ -203,7 +203,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.workflow = yaml.safe_load((SCRIPT.parents[1] / ".github/workflows/devsecops-pipeline.yml").read_text())
+        self.workflow = yaml.safe_load((SCRIPT.parents[1] / ".forgejo/workflows/devsecops-pipeline.yml").read_text())
 
     def collect(self, outcomes, reports=None):
         if reports is not None:
@@ -234,7 +234,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertNotIn("missing/empty payload", result.stderr)
         status = json.loads((self.root / "signed/sign-status.json").read_text())
         self.assertEqual(status["result"], "failure")
-        self.assertTrue(any(step.get("uses", "").startswith("actions/upload-artifact@") and step.get("if") == "always()" for step in self.workflow["jobs"]["publish"]["steps"]))
+        self.assertTrue(any("/upload-artifact@" in "/" + step.get("uses", "") and step.get("if") == "always()" for step in self.workflow["jobs"]["publish"]["steps"]))
 
     def test_pre_gate_failure_retains_partial_chain(self):
         values, _ = self.collect({"source": "success", "sign_sca": "failure", "gate": "skipped"}, {"attestation-chain.json": "[]"})

@@ -137,7 +137,7 @@ policy deny.
 ## Consumer workflow example
 
 This example follows the hardening this repository's own pipeline
-(`.github/workflows/devsecops-pipeline.yml`) applies to itself: no
+(`.forgejo/workflows/devsecops-pipeline.yml`) applies to itself: no
 `continue-on-error` masking a scanner crash, each output file removed
 before the scanner runs so a stale file from a previous run cannot be
 mistaken for this run's output, `if-no-files-found: error` on every upload

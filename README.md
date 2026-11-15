@@ -2,10 +2,15 @@
 
 ![Go version](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
-[![DevSecOps Attested Pipeline](https://github.com/MemerGamer/devsecops-attestation/actions/workflows/devsecops-pipeline.yml/badge.svg)](https://github.com/MemerGamer/devsecops-attestation/actions/workflows/devsecops-pipeline.yml)
+[![DevSecOps Attested Pipeline](https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions/workflows/devsecops-pipeline.yml/badge.svg)](https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions?workflow=devsecops-pipeline.yml)
 [![codecov](https://codecov.io/gh/MemerGamer/devsecops-attestation/graph/badge.svg)](https://codecov.io/gh/MemerGamer/devsecops-attestation)
 
 Cryptographically verifiable security decisions in CI/CD pipelines.
+
+> **Canonical repository:** https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation (Forgejo, with Forgejo Actions CI).
+> The GitHub repository `MemerGamer/devsecops-attestation` is a read-only push mirror: open pull requests and issues on Forgejo, not on GitHub.
+> Pull requests opened on GitHub before the move stay there as an archive and are not merged.
+> Release downloads and the `actions/setup` verification identity stay on GitHub releases.
 
 **MSc Thesis:** Cryptographically Verifiable Security Decisions in CI/CD-based DevSecOps Pipelines
 **Author:** Kovács Bálint-Hunor - Sapientia EMTE, Marosvásárhelyi Kar
@@ -221,7 +226,7 @@ go run ./cmd/gate evaluate \
 
 ## GitHub Actions Setup
 
-`.github/workflows/devsecops-pipeline.yml` runs `test` and the four scanner
+`.forgejo/workflows/devsecops-pipeline.yml` runs `test` and the four scanner
 jobs (`sast`, `sca`, `config`, `secret`) in parallel. Scanners retain their
 raw JSON artifact uploads and pass reports to `sign` through gzip/base64
 job outputs with per-file SHA-256 digests and a chunk-length manifest.
@@ -320,7 +325,7 @@ update the policy, recompute the hash and update the workflow:
 go run ./cmd/gate policy-hash --policy policies/deploy.rego
 ```
 
-Then update `--policy-hash` in `.github/workflows/devsecops-pipeline.yml`.
+Then update `--policy-hash` in `.forgejo/workflows/devsecops-pipeline.yml`.
 
 If the pipeline also passes `--data`, `--required-checks`,
 `--fail-on-severity`, or `--zero-tolerance-checks` (a non-default policy
