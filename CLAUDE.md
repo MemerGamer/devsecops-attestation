@@ -147,7 +147,8 @@ cmd/verify/         -- CLI: verify chain integrity
 cmd/gate/           -- CLI: verify chain, authorize signers, enforce log entries,
                          check policy hash and config hash, evaluate OPA policy
 test/integration/   -- integration tests (build tag: integration)
-.github/workflows/  -- GitHub Actions pipeline, release-please, dependabot auto-merge
+.forgejo/workflows/ -- Forgejo Actions pipeline (canonical CI)
+.github/workflows/  -- release-please, dependabot auto-merge (kept; disabled on the GitHub mirror)
 policies/           -- canonical Rego policy files, embedded into internal/policy via go:embed
 actions/            -- bash-only composite actions (setup, normalize-sign, gate) for consumer
                          CI/CD pipelines on GitHub or Forgejo; actions/test/run-local.sh
