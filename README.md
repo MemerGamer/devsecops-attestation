@@ -6,7 +6,7 @@
 
 Cryptographically verifiable security decisions in CI/CD pipelines.
 
-> **Canonical repository:** https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation (Forgejo, with Forgejo Actions CI).
+> **Canonical repository:** https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation (Forgejo, with Forgejo Actions CI, since 2026-11-15).
 > The GitHub repository `MemerGamer/devsecops-attestation` is a read-only push mirror: open pull requests and issues on Forgejo, not on GitHub.
 > Pull requests opened on GitHub before the move stay there as an archive and are not merged.
 > Release downloads and the `actions/setup` verification identity stay on GitHub releases.
