@@ -10,6 +10,10 @@ permissions:
 
 jobs:
   release-please:
+    # GitHub only: the canonical repository is on Forgejo, where this file is
+    # ignored while .forgejo/workflows exists; the guard also covers revisions
+    # without it. Releases are paused until the release path is decided.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
