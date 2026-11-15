@@ -243,7 +243,8 @@ four signing keys, so a compromise of that job reaches every check type.
 encoded chain and decision, uploads available diagnostics (including a
 signing status report for failures before the gate), and builds release
 binaries only after a successful `sign` job and a decoded `allow: true`
-decision. Artifact uploads and GitHub provenance attestation run here.
+decision; on Forgejo these are CI artifacts, not a public release, and the
+GitHub provenance attestation step is skipped (it runs only on github.com).
 `actions-selftest` runs both `.ci/test/test_transport.py` (transport,
 diagnostics and selected-key checks) and `actions/test/run-local.sh` on
 every push to `main`, pull request to `main` and manual dispatch.
