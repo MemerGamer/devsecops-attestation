@@ -297,7 +297,7 @@ jobs:
   sign:
     needs: [test, sast, sca, config, secret]
     runs-on: ubuntu-latest
-    # Forgejo port: no `environment:` routing (Forgejo ignores it). Every event
+    # Forgejo port: no environment routing (Forgejo ignores it). Every event
     # uses the TEST key set; fork PRs and bots never reach this job.
     if: >-
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||

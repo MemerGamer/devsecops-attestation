@@ -46,7 +46,7 @@ A compromise of one private key affects only that check type. Rotate the
 affected key pair without changing the others:
 
 1. Generate a new key pair: `go run ./cmd/keygen --out keys/new/`
-2. Update the two affected GitHub Actions secrets (signing key and public key).
+2. Update the two affected Forgejo Actions secrets (TEST keys only) (signing key and public key).
 3. The gate's `--authorized-signers` reads the public key secret at runtime,
    so no code change is needed.
 

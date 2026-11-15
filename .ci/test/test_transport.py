@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local adversarial tests for the production F1 encoder and decoder."""
 
+import re
 import base64
 import gzip
 import hashlib
@@ -280,6 +281,47 @@ class DiagnosticsTests(unittest.TestCase):
                 path.write_text('{"allow":' + value + "}")
                 result = subprocess.run(["bash", "-euo", "pipefail", "-c", step["run"].replace("${{ runner.temp }}", str(self.root))], capture_output=True)
                 self.assertEqual(result.returncode == 0, accepted)
+
+
+
+class ForgejoWorkflowInvariantTests(unittest.TestCase):
+    """H-8: Forgejo holds TEST keys only; pinned Forgejo artifact actions only."""
+
+    UPLOAD = "https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245"
+
+    def setUp(self):
+        self.path = SCRIPT.parents[1] / ".forgejo/workflows/devsecops-pipeline.yml"
+        self.text = self.path.read_text()
+        self.workflow = yaml.safe_load(self.text)
+
+    def test_only_test_secrets_and_codecov(self):
+        self.assertNotIn("secrets[", self.text)
+        names = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", self.text))
+        self.assertTrue(names)
+        for name in names:
+            with self.subTest(secret=name):
+                self.assertTrue(name.startswith("TEST_") or name == "CODECOV_TOKEN", name)
+
+    def test_no_forbidden_constructs(self):
+        for word in ["environment:", "pull_request_target", "docker-trusted", "download-artifact"]:
+            with self.subTest(word=word):
+                self.assertNotIn(word, self.text)
+        for name, job in self.workflow["jobs"].items():
+            with self.subTest(job=name):
+                self.assertNotIn("environment", job)
+                self.assertEqual(job["runs-on"], "ubuntu-latest")
+
+    def test_upload_artifact_pinned_everywhere(self):
+        uses = [step.get("uses", "") for job in self.workflow["jobs"].values() for step in job.get("steps", [])]
+        uploads = [u for u in uses if "upload-artifact" in u]
+        self.assertTrue(uploads)
+        for u in uploads:
+            with self.subTest(uses=u):
+                self.assertEqual(u, self.UPLOAD)
+
+    def test_key_set_is_test(self):
+        step = next(step for step in self.workflow["jobs"]["sign"]["steps"] if step.get("id") == "keys")
+        self.assertEqual(step["env"]["KEY_SET"], "test")
 
 
 if __name__ == "__main__":

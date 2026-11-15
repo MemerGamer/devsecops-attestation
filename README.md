@@ -3,7 +3,6 @@
 ![Go version](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![DevSecOps Attested Pipeline](https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions/workflows/devsecops-pipeline.yml/badge.svg)](https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions?workflow=devsecops-pipeline.yml)
-[![codecov](https://codecov.io/gh/MemerGamer/devsecops-attestation/graph/badge.svg)](https://codecov.io/gh/MemerGamer/devsecops-attestation)
 
 Cryptographically verifiable security decisions in CI/CD pipelines.
 
@@ -23,7 +22,7 @@ Cryptographically verifiable security decisions in CI/CD pipelines.
 - [Zero-Trust Design](#zero-trust-design)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
-- [GitHub Actions Setup](#github-actions-setup)
+- [Forgejo Actions Setup](#forgejo-actions-setup)
 - [Running Tests](#running-tests)
 - [Breaking Changes / Upgrading](#breaking-changes--upgrading)
 - [Documentation](#documentation)
@@ -224,7 +223,7 @@ go run ./cmd/gate evaluate \
 
 ---
 
-## GitHub Actions Setup
+## Forgejo Actions Setup
 
 `.forgejo/workflows/devsecops-pipeline.yml` runs `test` and the four scanner
 jobs (`sast`, `sca`, `config`, `secret`) in parallel. Scanners retain their
@@ -247,7 +246,7 @@ binaries only after a successful `sign` job and a decoded `allow: true`
 decision. Artifact uploads and GitHub provenance attestation run here.
 `actions-selftest` runs both `.ci/test/test_transport.py` (transport,
 diagnostics and selected-key checks) and `actions/test/run-local.sh` on
-every push to `main`/`develop` and pull request to `main`.
+every push to `main`, pull request to `main` and manual dispatch.
 
 The exact-SHA fetch in `sign` is anonymous because this repository is
 public. A private Forgejo repository needs an authenticated credential
@@ -257,43 +256,23 @@ path before private-repository deployment.
 See [`actions/README.md`](actions/README.md) for the composite action
 input/output reference and consumer workflow example.
 
-**1. Generate separate production and test key pairs locally:**
+**1. Generate the test key pairs locally:**
 
 ```shell
-for keyset in production test; do
-  for check in sast sca config secret; do
-    go run ./cmd/keygen --out "keys/$keyset/$check"
-  done
+for check in sast sca config secret; do
+  go run ./cmd/keygen --out "keys/test/$check"
 done
 ```
 
-**2. Configure secrets and environments before merging:**
+**2. Store the eight `TEST_*` secrets on Forgejo:**
 
-Under **Settings > Environments**, create `production` and `test`.
-For `production`, set **Deployment branches and tags > Selected branches
-and tags** to a branch rule matching exactly `main`; add no tag rules.
-Store these eight production secrets in that environment:
-
-| Production environment secret | Value |
-|---|---|
-| `SAST_SIGNING_KEY` | Contents of `keys/production/sast/private.hex` |
-| `SCA_SIGNING_KEY` | Contents of `keys/production/sca/private.hex` |
-| `CONFIG_SIGNING_KEY` | Contents of `keys/production/config/private.hex` |
-| `SECRET_SCANNING_SIGNING_KEY` | Contents of `keys/production/secret/private.hex` |
-| `SAST_PUBLIC_KEY` | Contents of `keys/production/sast/public.hex` |
-| `SCA_PUBLIC_KEY` | Contents of `keys/production/sca/public.hex` |
-| `CONFIG_PUBLIC_KEY` | Contents of `keys/production/config/public.hex` |
-| `SECRET_SCANNING_PUBLIC_KEY` | Contents of `keys/production/secret/public.hex` |
-
-After moving them, remove repository-level copies of these production
-secrets and any organization-secret access exposing the same production
-keys to this repository. Otherwise a job outside the protected environment
-can still reference those copies.
-
-Allow the `test` environment to run for internal pull-request merge refs
-and `develop` (the **No restriction** setting allows both). Store these
-eight separate test secrets in `test`, or as repository Actions secrets
-under **Settings > Secrets and variables > Actions**:
+Under the repository's **Settings > Actions > Secrets**, store these eight
+secrets. Every event (push to `main`, pull request, manual dispatch) uses
+them. Forgejo holds no production keys and the workflow references none.
+Missing secrets fail closed. Fork pull requests need the owner's approval
+to run and receive no secrets; AGit pull requests (`refs/for/main/...`)
+also receive no secrets, so their `sign` and `publish` checks fail.
+Use a branch in this repository for pull requests that must pass.
 
 | Test secret | Value |
 |---|---|
@@ -306,13 +285,9 @@ under **Settings > Secrets and variables > Actions**:
 | `TEST_CONFIG_PUBLIC_KEY` | Contents of `keys/test/config/public.hex` |
 | `TEST_SECRET_SCANNING_PUBLIC_KEY` | Contents of `keys/test/secret/public.hex` |
 
-`sign` selects `production` and the unprefixed secret names only for
-`push` to `main`. Eligible internal PRs and `develop` pushes select `test`
-and the `TEST_` names. GitHub resolves the selected names from environment
-or repository secrets; missing selected secrets fail closed without a
-fallback to production. Fork and dependabot/renovate guards remain in
-place. Environment-scoped production secrets and the main-only rule are
-required to enforce the boundary outside the editable workflow YAML.
+Attestation chains produced on Forgejo are therefore TEST-signed CI
+evidence, not release evidence. Releases and their downloads stay on
+GitHub Releases.
 
 Never commit any `private.hex` file. The `keys/` directory is ignored.
 
@@ -334,16 +309,12 @@ compute it with `go run ./cmd/gate config-hash` using the same flags. The
 bundled workflow uses the default configuration, so no `--config-hash` is
 needed there.
 
-**4. Update required checks before merging:**
+**4. Required checks:**
 
-In the branch protection rule or ruleset for `main`, replace the required
-check `deploy-gate` with both `sign` and `publish`. Keep the other required
-checks unchanged. Apply the same replacement to any `develop` protection
-that currently requires `deploy-gate`.
-
-Optional required reviewers on `production` add an approval gate. Configure
-environment rules and secrets in GitHub settings; the workflow does not
-create their protection rules or provision secrets. See also
+The branch protection rule for `main` on Forgejo requires the pull-request
+contexts `DevSecOps Attested Pipeline / <job> (pull_request)` for `test`,
+`sast`, `sca`, `config`, `secret`, `actions-selftest`, `sign` and
+`publish`. See also
 [`actions/README.md`](actions/README.md#deploy-gate-secret-exposure).
 
 **Consuming this pipeline from another repository:** you do not need to

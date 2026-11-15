@@ -324,11 +324,10 @@ configuration:
   A config fetched from a separate, protected location (a release asset,
   an organization-level repository) cannot be altered by a PR against this
   repository.
-- **Protect the signing environment**: this repository's `sign` job
-  selects `production` only on `push` to `main`, and `test` for eligible
-  internal PRs and `develop` pushes. The production environment must hold
-  the production secrets and permit only the `main` branch. Optional
-  required reviewers add a checkpoint independent of scanner configuration.
+- **Protect the signing keys**: this repository's own `sign` job runs on
+  Forgejo with TEST keys only, on every event; Forgejo holds no production
+  keys. A consumer that signs with production keys should keep them in a
+  protected environment that permits only its release branch.
 
 ### Deploy gate secret exposure
 
@@ -349,36 +348,29 @@ composites. One signing job still holds all four selected private keys.
 uploads available status/chain/decision files, builds releases only after
 success and an `allow: true` decision, and creates GitHub provenance.
 
-Configure `production` with a branch rule permitting exactly `main`, no
-tag rules, and all eight unprefixed signing/public-key secrets. Remove
-repository-level or organization-accessible copies of the same production
-keys. Configure `test` to allow internal PR merge refs and `develop`, with
-the eight corresponding `TEST_` secrets there or at repository level.
-The workflow selects secret names before looking up their values, so an
-empty test secret cannot fall back to production. Environment protection
-is enforced by GitHub independently of edits to the workflow.
-
-Before merging, replace required check `deploy-gate` with `sign` and
-`publish` in branch protection. See the exact names and setup steps in
-[`../README.md`](../README.md#github-actions-setup). These settings are
+On Forgejo this repository stores only the eight `TEST_` secrets and the
+workflow references no other key names, so there is no production key set
+to fall back to. Required checks are `sign` and `publish` together with the
+test and scanner jobs. See the exact names and setup steps in
+[`../README.md`](../README.md#forgejo-actions-setup). These settings are
 configured by the repository owner; the composite actions do not configure
 environments or secrets.
 
 ### Forgejo usage
 
-Once this repository is mirrored to Forgejo, point `uses:` at the Forgejo
+This repository is canonical on Forgejo. Point `uses:` at the Forgejo
 form instead of the GitHub one:
 
 ```yaml
 - uses: https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions/setup@v0.4.0
   with:
     version: "1.2.3"
-    download-base-url: https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/releases/download
+    download-base-url: https://github.com/MemerGamer/devsecops-attestation/releases/download
 ```
 
-`download-base-url` must be overridden explicitly on Forgejo: the action's
-own default only points at the GitHub release, and the two forges normally
-have different owners/orgs for the same project. Everything else in the
+Releases stay on GitHub Releases, so keep `download-base-url` at the GitHub
+release URL when running on Forgejo (the action's default is the same
+GitHub URL; the line above only makes it explicit). Everything else in the
 action (env var derivation, signer identity, log entry URLs) works unchanged
 because it only relies on the `GITHUB_*` variables Forgejo Actions also
 exports.
