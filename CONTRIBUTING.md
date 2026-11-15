@@ -150,6 +150,9 @@ New tool integrations live in `pkg/normalize/`, one file per tool (e.g.
 
 ## Releasing
 
+Release automation is paused since the move to Forgejo on 2026-11-15: no new release is cut until the release path is decided.
+The description below is how releases were made until then.
+
 Releases are driven by [release-please](https://github.com/googleapis/release-please):
 merging its release PR (generated automatically against `main` from
 conventional commits) tags a release and triggers the `publish` job in
