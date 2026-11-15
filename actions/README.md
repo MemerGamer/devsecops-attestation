@@ -346,7 +346,8 @@ archive and modules, uses fresh caches, and runs only run steps and local
 composites. One signing job still holds all four selected private keys.
 `publish` holds no signing secrets; it checks transported diagnostics,
 uploads available status/chain/decision files, builds releases only after
-success and an `allow: true` decision, and creates GitHub provenance.
+success and an `allow: true` decision (CI artifacts on Forgejo), and creates
+GitHub provenance only when running on github.com.
 
 On Forgejo this repository stores only the eight `TEST_` secrets and the
 workflow references no other key names, so there is no production key set
@@ -368,9 +369,10 @@ form instead of the GitHub one:
     download-base-url: https://github.com/MemerGamer/devsecops-attestation/releases/download
 ```
 
-Releases stay on GitHub Releases, so keep `download-base-url` at the GitHub
-release URL when running on Forgejo (the action's default is the same
-GitHub URL; the line above only makes it explicit). Everything else in the
+Releases stay on GitHub Releases. The action's default prefixes the
+download URL with `${{ github.server_url }}`, which on Forgejo points at the
+Forgejo server, so on Forgejo explicitly set `download-base-url` to the GitHub
+Releases URL (as above) when installing a released version. Everything else in the
 action (env var derivation, signer identity, log entry URLs) works unchanged
 because it only relies on the `GITHUB_*` variables Forgejo Actions also
 exports.
