@@ -612,4 +612,10 @@ jobs:
         run: python3 .ci/test/test_transport.py
 
       - name: Run composite actions self-test
-        run: bash actions/test/run-local.sh
+        run: |
+          set -euo pipefail
+          export RELEASE_TOOLS_DIR="$RUNNER_TEMP/release-test-tools"
+          bash .ci/install-release-tools.sh cosign-v3.1.4 cosign-v3.0.2
+          for version in v3.1.4 v3.0.2; do
+            COSIGN_TEST_BIN="$RELEASE_TOOLS_DIR/cosign-$version" bash actions/test/run-local.sh
+          done

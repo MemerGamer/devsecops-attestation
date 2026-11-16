@@ -7,9 +7,9 @@ on the `main` branch is the only supported version.
 
 ## Reporting a Vulnerability
 
-To report a security vulnerability, please open a GitHub issue with the
+To report a security vulnerability, please open a Forgejo issue with the
 title prefixed `[SECURITY]`. For sensitive disclosures, contact the author
-directly via the email listed on their GitHub profile.
+directly via the email listed on their profile.
 
 Please include:
 
@@ -187,3 +187,44 @@ signed on Forgejo is TEST-signed CI evidence; `verify: OK` or an
 | Forged or overwritten scanner report between the scan job and the signing job ("report substitution") | Each scanner job encodes its own output through the F1 transport (gzip/base64 job outputs with per-file SHA-256 digests and a chunk-length manifest); `sign` decodes and verifies digests and manifest before signing and fails closed on any mismatch; the scan step removes its own output file before the scanner runs so a stale file cannot be mistaken for this run's output; raw reports are also uploaded with `if-no-files-found: error` for diagnosis |
 | Suppressed finding via an in-repo scanner configuration change (`.gitleaks.toml` allowlist, `.checkov.yaml` skip-check, `# nosemgrep`, `.semgrepignore`, `.trivyignore`) | Outside this tool's control at the crypto/policy layer: mitigated operationally via CODEOWNERS on those files, an out-of-band trusted config passed explicitly to the scanner, and required review on the signing environment; see `actions/README.md`'s "Scanner configuration trust" |
 | Forked pull request or dependabot/renovate PR reaching the signing job and exfiltrating signing keys | `sign` runs only on `push` to `main`, `workflow_dispatch` and same-repository pull requests, never for Dependabot or Renovate; Forgejo withholds secrets from fork and AGit pull requests; Forgejo holds TEST keys only, so no production key is exposed (see "Signing Job" above) |
+
+## Release key and distribution trust
+
+G7 uses a separate, passphrase-protected Cosign key held only by Hunor on
+pc with an offline backup. It never enters Forgejo, the runner or this
+repository. This is independent of the TEST attestation keys above.
+`actions/setup/release-keys/release-v1.pub` is currently **PLACEHOLDER**.
+There is no production fingerprint yet. Hunor must replace it and record
+SHA-256 of the real public-key file here, in the tooling PR and release
+notes after the 0700-directory/0600-file ceremony in
+[docs/releasing.md](docs/releasing.md). New signed release installs fail
+closed until this is done.
+
+For >=0.5.0, the pinned action maps versions to that fixed key file and
+requires a verified public Rekor log entry bound to the signature and
+manifest. It uses stable Cosign v3 >=3.0.2 through env -i, a fresh private
+home and public TUF roots, with bypasses explicitly false. Caller root,
+cache, proxy and COSIGN/SIGSTORE/TUF overrides are not inherited. The exact
+ten-file tag-derived manifest inventory and archive checksum are required.
+Legacy 0.4.0, 0.4.1 and 0.4.2 require their fixed GitHub workflow identity
+and pinned manifest digests, even from an explicit mirror URL. Unsupported
+old versions and deny-listed versions fail. Explicit verify-signature=false
+skips signature and Rekor checks only, not version, inventory or checksum
+rules. Failed release installs never switch source, hosts or versions.
+
+Rotate a compromised key with a reviewed public-key/version mapping update,
+an explicit revoked-version deny-list in release-policy.sh, a new setup
+release and an advisory. Rekor integrated time is observable but is not a
+revocation cutoff. Pre-release status alone does not revoke a version.
+A stolen key can sign every non-legacy version, retroactively on either
+host; consumers pinned to older action SHAs remain exposed until they
+update to a pin carrying the deny-list and replacement key. pc also holds
+the Forgejo SSH key and gh login, so pc compromise reaches all three.
+The first key rotation should move custody to hardware.
+
+Source mode is a separately selected trust path: version must equal source.
+It trusts the action's own checkout, local changes, Go and module
+dependencies, and provides no release-key, pinned legacy manifest or Rekor
+guarantee. It works with default verification and needs Go instead of Cosign.
+Pin and review the source/action SHA. This path is preserved for PR checks
+and dogfooding; no release verification failure can select it.

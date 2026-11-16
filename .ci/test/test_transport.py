@@ -323,6 +323,13 @@ class ForgejoWorkflowInvariantTests(unittest.TestCase):
         step = next(step for step in self.workflow["jobs"]["sign"]["steps"] if step.get("id") == "keys")
         self.assertEqual(step["env"]["KEY_SET"], "test")
 
+    def test_selftest_installs_and_runs_both_pinned_cosign_versions(self):
+        steps = self.workflow['jobs']['actions-selftest']['steps']
+        script = next(step['run'] for step in steps if step.get('name') == 'Run composite actions self-test')
+        self.assertIn('bash .ci/install-release-tools.sh cosign-v3.1.4 cosign-v3.0.2', script)
+        self.assertIn('for version in v3.1.4 v3.0.2', script)
+        self.assertIn('COSIGN_TEST_BIN="$RELEASE_TOOLS_DIR/cosign-$version" bash actions/test/run-local.sh', script)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

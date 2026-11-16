@@ -1,0 +1,62 @@
+name: Build release inputs
+
+permissions:
+  contents: read
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated release tag (never a branch)
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve existing annotated tag and check out its SHA
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'invalid release tag' >&2; exit 1; }
+          git -c credential.helper= fetch --no-tags origin \
+            '+refs/heads/main:refs/remotes/origin/main' "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          tag_object="$(git rev-parse --verify "refs/tags/$RELEASE_TAG")"
+          [ "$(git cat-file -t "$tag_object")" = tag ] || { echo 'release tag must be annotated' >&2; exit 1; }
+          commit="$(git rev-parse --verify "$tag_object^{commit}")"
+          git merge-base --is-ancestor "$commit" origin/main
+          git checkout --detach "$commit"
+          printf 'RELEASE_TAG=%s\nRELEASE_COMMIT=%s\nRELEASE_TAG_OBJECT=%s\n' "$RELEASE_TAG" "$commit" "$tag_object" >> "$GITHUB_ENV"
+      - name: Build unsigned release inputs with isolated caches
+        run: bash scripts/release-build.sh
+      - name: Stage exact tag-derived input inventory
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$RELEASE_COMMIT" ]
+          [ "$(git rev-parse "refs/tags/$RELEASE_TAG")" = "$RELEASE_TAG_OBJECT" ]
+          python3 .ci/release_assets.py stage "$RELEASE_TAG" dist --destination "$RUNNER_TEMP/release-input"
+      # CI output is untrusted input for Hunor's rebuild, never a release.
+      # Artifact transport avoids giving this job a release API write step.
+      - name: Upload unsigned inputs for local verification
+        uses: https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5
+        with:
+          name: release-input-${{ env.RELEASE_TAG }}
+          path: ${{ runner.temp }}/release-input/*
+          if-no-files-found: error
+          retention-days: 7

@@ -124,11 +124,13 @@ three ways so a consumer never needs to clone or build this repository:
   plus a markdown job summary. Each action's logic lives in a shellcheck-able
   script (`setup.sh`, `normalize-sign.sh`, `gate.sh`), not inline YAML.
 - **Container image** - `ghcr.io/memergamer/devsecops-attestation:<version>`,
-  a distroless non-root image bundling all four binaries and the default
+  the legacy v0.4.2 distroless non-root image bundling all four binaries and the default
   policy, invoked as `docker run -v $PWD:/work IMAGE <binary> ...`.
 - **GoReleaser archives** - per-OS/arch `.tar.gz`/`.zip` archives with a
-  `checksums.txt` and cosign signature, published to the GitHub release that
-  `release-please` creates for each tag.
+  checksums.txt and verified public-Rekor Cosign bundle. Forgejo CI only
+  builds unsigned inputs; Hunor checks a local rebuild and publishes the
+  canonical Forgejo release plus byte-identical GitHub assets. No new image
+  is built. See [release procedure](releasing.md).
 
 See [`docs/integration-guide.md`](integration-guide.md) for the full
 consumer-facing walkthrough of installation, key provisioning, and workflow

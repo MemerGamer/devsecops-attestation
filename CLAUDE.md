@@ -148,13 +148,13 @@ cmd/gate/           -- CLI: verify chain, authorize signers, enforce log entries
                          check policy hash and config hash, evaluate OPA policy
 test/integration/   -- integration tests (build tag: integration)
 .forgejo/workflows/ -- Forgejo Actions pipeline (canonical CI)
-.github/workflows/  -- release-please, dependabot auto-merge (kept; disabled on the GitHub mirror)
+.github/workflows/  -- dependabot auto-merge (kept; disabled on the GitHub mirror)
 policies/           -- canonical Rego policy files, embedded into internal/policy via go:embed
 actions/            -- bash-only composite actions (setup, normalize-sign, gate) for consumer
                          CI/CD pipelines on GitHub or Forgejo; actions/test/run-local.sh
                          exercises all three without a real runner
 Dockerfile, Dockerfile.goreleaser, .goreleaser.yaml, Makefile
-                     -- container image, release archive/OCI image packaging, build helpers
+                     -- local container image, unsigned release archive packaging, build helpers
 ```
 
 ## PhD Extension Points
@@ -214,14 +214,21 @@ as the MSc contribution. FROST and network gossip are PhD territory.
   setting both is an error. The `ATTEST_SIGNING_KEY` environment variable is used only when
   neither flag is set; at least one of the three sources must be set. `actions/normalize-sign`
   passes the key via `ATTEST_SIGNING_KEY` rather than a flag for this reason.
-- `actions/setup`'s `verify-signature` input defaults to `"true"`: it verifies `checksums.txt`
-  against its cosign `sign-blob` Sigstore bundle before trusting it, pinned to the exact signer
-  identity `https://github.com/<repository>/.github/workflows/release-please.yml@refs/heads/main`
-  with `--certificate-github-workflow-trigger push`, so only the release-please workflow running
-  on the default branch in response to a push (never a `pull_request`, which a fork could forge)
-  is trusted to have produced the release artifacts. The step fails with guidance if `cosign` is
-  not on `PATH` rather than silently skipping verification; set `verify-signature: false`
-  explicitly to opt out (e.g. local/demo runs, or `version: source`).
+- `actions/setup` verifies new release manifests with the public key inside
+  its pinned checkout and cryptographically verified public Rekor evidence.
+  Stable Cosign v3 >=3.0.2 is required and runs through env -i with a fresh
+  private home, fixed verification flags and public TUF bootstrap. Legacy
+  0.4.0 to 0.4.2 retain a fixed GitHub workflow identity plus pinned manifest
+  digests. A version deny-list handles revocation; inputs cannot choose keys.
+  Explicit verify-signature=false skips signatures/log checks only.
+- `version: source` separately trusts the action checkout, local changes, Go
+  and modules. It needs no release URL or Cosign with default verification.
+  Release failures never fall back to source. New release URL defaults are
+  server-aware; legacy versions always default to GitHub.
+- G7 builds unsigned Forgejo CI inputs; Hunor alone tags, signs and publishes
+  after rebuilding all binaries. GitHub is a byte-identical distribution
+  copy; no new container image is published. See docs/releasing.md. The
+  production key remains a placeholder until Hunor's ceremony.
 - The bundled policy's `required_checks` is the exact declared set of check types (default
   `{"sast", "sca", "config", "secret"}`, overridable via `data.config.required_checks`), not a
   minimum floor: any attestation in the chain whose `check_type` is not in `required_checks` is an

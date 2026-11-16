@@ -1,22 +1,11 @@
-# GoReleaser configuration for devsecops-attestation.
-#
-# Produces per-OS/arch archives bundling all four CLI binaries (keygen,
-# attest, verify, gate) plus LICENSE, README.md, and the canonical policy,
-# a sha256 checksums file, SBOMs, a signed OCI image, and cosign/attest-
-# build-provenance signatures. Release notes and the GitHub release itself
-# are owned by release-please; goreleaser publishes into the release that
-# release-please already created for the pushed tag.
-#
-# Run `goreleaser check` to validate this file, and
-# `goreleaser release --snapshot --clean --skip=publish,sign,sbom` for a
-# local dry run that does not require registry or signing credentials.
+# Unsigned archives and SBOMs only. No container, signing or publishing pipe.
 version: 2
 
 project_name: devsecops-attestation
 
 before:
   hooks:
-    - go mod tidy
+    - sh -c 'go mod tidy && git diff --exit-code -- go.mod go.sum'
 
 builds:
   - id: keygen
@@ -24,6 +13,11 @@ builds:
     binary: keygen
     env:
       - CGO_ENABLED=0
+      - GOAMD64=v1
+      - GOARM64=v8.0
+      - GOENV=off
+      - GOWORK=off
+      - GOTOOLCHAIN=local
     goos:
       - linux
       - darwin
@@ -36,6 +30,7 @@ builds:
         goarch: arm64
     flags:
       - -trimpath
+      - -buildvcs=false
     ldflags:
       - -s -w -X main.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -45,6 +40,11 @@ builds:
     binary: attest
     env:
       - CGO_ENABLED=0
+      - GOAMD64=v1
+      - GOARM64=v8.0
+      - GOENV=off
+      - GOWORK=off
+      - GOTOOLCHAIN=local
     goos:
       - linux
       - darwin
@@ -57,6 +57,7 @@ builds:
         goarch: arm64
     flags:
       - -trimpath
+      - -buildvcs=false
     ldflags:
       - -s -w -X main.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -66,6 +67,11 @@ builds:
     binary: verify
     env:
       - CGO_ENABLED=0
+      - GOAMD64=v1
+      - GOARM64=v8.0
+      - GOENV=off
+      - GOWORK=off
+      - GOTOOLCHAIN=local
     goos:
       - linux
       - darwin
@@ -78,6 +84,7 @@ builds:
         goarch: arm64
     flags:
       - -trimpath
+      - -buildvcs=false
     ldflags:
       - -s -w -X main.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -87,6 +94,11 @@ builds:
     binary: gate
     env:
       - CGO_ENABLED=0
+      - GOAMD64=v1
+      - GOARM64=v8.0
+      - GOENV=off
+      - GOWORK=off
+      - GOTOOLCHAIN=local
     goos:
       - linux
       - darwin
@@ -99,6 +111,7 @@ builds:
         goarch: arm64
     flags:
       - -trimpath
+      - -buildvcs=false
     ldflags:
       - -s -w -X main.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -131,69 +144,14 @@ sboms:
   - id: archives
     artifacts: archive
 
-signs:
-  - id: checksums
-    cmd: cosign
-    signature: "${artifact}.sigstore.json"
-    args:
-      - "sign-blob"
-      - "--bundle=${signature}"
-      - "${artifact}"
-      - "--yes"
-    artifacts: checksum
-    output: true
+    documents:
+      - "{{ .ArtifactName }}.sbom.json"
 
-dockers_v2:
-  - id: devsecops-attestation
-    dockerfile: Dockerfile.goreleaser
-    images:
-      - "{{ .Env.REGISTRY }}/memergamer/devsecops-attestation"
-    tags:
-      - "{{ .Version }}"
-      - "{{ .Major }}.{{ .Minor }}"
-      - "{{ .Major }}"
-      - "latest"
-    platforms:
-      - linux/amd64
-      - linux/arm64
-    ids:
-      - keygen
-      - attest
-      - verify
-      - gate
-    extra_files:
-      - policies/deploy.rego
-    build_args:
-      VERSION: "{{ .Version }}"
-    labels:
-      org.opencontainers.image.source: "https://github.com/MemerGamer/devsecops-attestation"
-      org.opencontainers.image.version: "{{ .Version }}"
-      org.opencontainers.image.licenses: "MIT"
-
-docker_signs:
-  - id: images
-    cmd: cosign
-    # artifacts is intentionally left unset. In goreleaser v2.18.x,
-    # docker_signs' artifacts default already covers the DockerImageV2
-    # artifacts that dockers_v2 produces - the "images" value would select
-    # the same set explicitly, it is not limited to the legacy dockers
-    # pipe's artifact types - so leaving it unset signs exactly the images
-    # this config builds without naming the value redundantly.
-    args:
-      - "sign"
-      - "--yes"
-      - "${artifact}@${digest}"
-    output: true
-
+# CI builds only. Hunor verifies and publishes the local bytes separately.
 release:
-  github:
-    owner: MemerGamer
-    name: devsecops-attestation
-  mode: keep-existing
-  # release-please already created the GitHub release for this tag with its
-  # own generated notes; goreleaser only uploads build artifacts to it.
-  disable: false
+  disable: true
+
+force_token: gitea
 
 changelog:
-  # release-please owns the changelog; goreleaser must not generate one.
   disable: true

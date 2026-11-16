@@ -14,7 +14,7 @@ set -euo pipefail
 
 : "${INPUT_VERSION:?INPUT_VERSION is required}"
 : "${INPUT_REPOSITORY:?INPUT_REPOSITORY is required}"
-: "${INPUT_DOWNLOAD_BASE_URL:?INPUT_DOWNLOAD_BASE_URL is required}"
+INPUT_DOWNLOAD_BASE_URL="${INPUT_DOWNLOAD_BASE_URL-}"
 : "${INPUT_INSTALL_DIR:?INPUT_INSTALL_DIR is required}"
 # Unset means "not provided": default to the documented "true". A value
 # that is explicitly set but empty is a misconfiguration, not "disabled" -
@@ -25,6 +25,11 @@ INPUT_VERIFY_SIGNATURE="${INPUT_VERIFY_SIGNATURE-true}"
 
 install_dir="${INPUT_INSTALL_DIR}"
 mkdir -p "${install_dir}"
+install_dir="$(cd "${install_dir}" && pwd)"
+action_dir="$(cd "${GITHUB_ACTION_PATH}" && pwd)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=release-policy.sh
+source "${action_dir}/release-policy.sh"
 
 log() {
 	printf '[setup] %s\n' "$*" >&2
@@ -103,6 +108,7 @@ if [ "${INPUT_VERSION}" = "source" ]; then
 	policy_path="${install_dir}/deploy.rego"
 else
 	version="${INPUT_VERSION#v}"
+	release_version_check "${version}" || fail "unsupported or revoked release version"
 	tag="v${version}"
 
 	case "${RUNNER_OS:-}" in
@@ -125,7 +131,19 @@ else
 	fi
 
 	archive_name="devsecops-attestation_${version}_${os}_${arch}.${archive_ext}"
-	base_url="${INPUT_DOWNLOAD_BASE_URL}/${tag}"
+	if [ -z "${INPUT_DOWNLOAD_BASE_URL}" ]; then
+		case "${version}" in
+		0.4.0 | 0.4.1 | 0.4.2) INPUT_DOWNLOAD_BASE_URL=https://github.com/MemerGamer/devsecops-attestation/releases/download ;;
+		*)
+			case "${GITHUB_SERVER_URL:-}" in
+			"") fail "release installation requires GITHUB_SERVER_URL or an explicit download-base-url" ;;
+			https://github.com) INPUT_DOWNLOAD_BASE_URL=https://github.com/MemerGamer/devsecops-attestation/releases/download ;;
+			*) INPUT_DOWNLOAD_BASE_URL=https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/releases/download ;;
+			esac ;;
+		esac
+	fi
+	[ "${os}_${arch}" != windows_arm64 ] || fail "windows arm64 release archives are not supported"
+	base_url="${INPUT_DOWNLOAD_BASE_URL%/}/${tag}"
 	archive_url="${base_url}/${archive_name}"
 	checksums_url="${base_url}/checksums.txt"
 
@@ -137,36 +155,20 @@ else
 	log "downloading ${checksums_url}"
 	curl_fetch "${checksums_url}" "${work_dir}/checksums.txt"
 
+	legacy_digest="$(release_legacy_digest "${version}")"
+	if [ -n "${legacy_digest}" ]; then
+		actual_digest="$(sha256sum "${work_dir}/checksums.txt" | awk '{print $1}')"
+		[ "${actual_digest}" = "${legacy_digest}" ] || fail "legacy checksums.txt digest mismatch"
+	fi
 	if [ "${verify_signature}" = "true" ]; then
-		if ! command -v cosign >/dev/null 2>&1; then
-			fail "verify-signature=true (the default) but cosign is not on PATH. Add sigstore/cosign-installer before this step, e.g.:
-  - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-Or set verify-signature: false explicitly to skip release signature verification (not recommended for production use)."
-		fi
-
-		log "verifying checksums.txt signature with cosign"
-		# goreleaser's `signs:` produces a single Sigstore bundle (the
-		# combined signature + certificate + Rekor inclusion proof) rather
-		# than separate .sig/.pem files, since cosign v3 (installed by
-		# sigstore/cosign-installer v4.x) no longer honors
-		# --output-signature/--output-certificate for sign-blob.
+		command -v cosign >/dev/null 2>&1 || fail "cosign is not on PATH (stable v3.0.2 or later required)"
 		curl_fetch "${base_url}/checksums.txt.sigstore.json" "${work_dir}/checksums.txt.sigstore.json"
-		# Pin the exact signer identity rather than a regexp over "any
-		# workflow in this repo": only the release-please workflow, running
-		# on the default branch, in response to a push (never a
-		# pull_request, which would let a fork or an untrusted PR forge a
-		# matching identity), is trusted to have produced the release
-		# artifacts. INPUT_REPOSITORY is interpolated into the identity
-		# string but not into a regex, so no escaping is needed here (unlike
-		# the previous --certificate-identity-regexp form).
-		cosign verify-blob \
-			--bundle "${work_dir}/checksums.txt.sigstore.json" \
-			--certificate-identity "https://github.com/${INPUT_REPOSITORY}/.github/workflows/release-please.yml@refs/heads/main" \
-			--certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-			--certificate-github-workflow-trigger "push" \
-			--certificate-github-workflow-repository "${INPUT_REPOSITORY}" \
-			"${work_dir}/checksums.txt" \
+		log "verifying checksums.txt signature and public Rekor evidence with cosign"
+		release_verify "${action_dir}" "${version}" "${work_dir}/checksums.txt" "${work_dir}/checksums.txt.sigstore.json" \
 			|| fail "cosign verify-blob failed for checksums.txt"
+	fi
+	if [ -z "${legacy_digest}" ]; then
+		release_manifest_check "${work_dir}/checksums.txt" "${version}" || fail "invalid release manifest inventory"
 	fi
 
 	log "verifying checksum for ${archive_name}"

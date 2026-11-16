@@ -97,22 +97,23 @@ for the full input/output reference.
 
 ### Container image
 
-`ghcr.io/memergamer/devsecops-attestation:<version>` (also tagged
+The legacy `ghcr.io/memergamer/devsecops-attestation:0.4.2` image (also tagged
 `<major>.<minor>`, `<major>`, and `latest`) bundles all four binaries and
 the default policy under a distroless, non-root runtime. Mount your working
-directory at `/work` and invoke whichever binary you need by name:
+directory at `/work` and invoke whichever binary you need by name. No new
+image is built for v0.5.0; use release archives or source mode for new code:
 
 ```shell
-docker run --rm -v "$PWD:/work" ghcr.io/memergamer/devsecops-attestation:1.2.3 \
+docker run --rm -v "$PWD:/work" ghcr.io/memergamer/devsecops-attestation:0.4.2 \
   keygen --out /work/keys
 
-docker run --rm -v "$PWD:/work" ghcr.io/memergamer/devsecops-attestation:1.2.3 \
+docker run --rm -v "$PWD:/work" ghcr.io/memergamer/devsecops-attestation:0.4.2 \
   attest tools
 
-docker run --rm -v "$PWD:/work" ghcr.io/memergamer/devsecops-attestation:1.2.3 \
+docker run --rm -v "$PWD:/work" ghcr.io/memergamer/devsecops-attestation:0.4.2 \
   verify --chain /work/attestation-chain.json
 
-docker run --rm -v "$PWD:/work" ghcr.io/memergamer/devsecops-attestation:1.2.3 \
+docker run --rm -v "$PWD:/work" ghcr.io/memergamer/devsecops-attestation:0.4.2 \
   gate evaluate --chain /work/attestation-chain.json \
     --authorized-signers "sast=<hex>,sca=<hex>,config=<hex>,secret=<hex>" \
     --max-age 24h --require-log-entries
@@ -307,9 +308,11 @@ environment variables that Forgejo Actions also provides:
 `--signer-id` and `--log-entry` from these same variables when the flags are
 omitted, so both work unchanged on a Forgejo runner.
 
-On Forgejo, reference the actions by their full mirror URL instead of the
-GitHub shorthand, and override `download-base-url` on `actions/setup`
-explicitly (its default only points at the GitHub release):
+On Forgejo, reference actions by their canonical URL. G7 setup defaults to
+Forgejo for new releases and always to GitHub for legacy 0.4.0 to 0.4.2.
+Old setup pins still need an explicit GitHub URL. Bump the reviewed action
+SHA and version together for new releases. The candidate key ceremony and
+public rehearsal precede the first new release:
 
 ```yaml
 - uses: https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions/setup@v0.4.0
@@ -329,9 +332,17 @@ elsewhere:
 - **Dependabot auto-merge** - Dependabot itself is a GitHub-only bot;
   Forgejo mirrors use Renovate or an equivalent instead.
 
-The container image registry is configurable via `vars.REGISTRY` (defaults
-to `ghcr.io`), so a Forgejo publish job can push to a self-hosted registry
-instead.
+No registry publication is part of G7. New archives require stable Cosign
+v3 >=3.0.2, a fixed release public key and cryptographically verified public
+Rekor evidence. Legacy installs also pin manifest digests. An explicit URL
+always wins; local release runs with no server need one. No verification
+failure retries another host or falls back to source.
+
+Explicit version source instead builds the pinned action checkout, trusting
+that source, local changes, Go and modules. It needs no Cosign or URL and
+works with default verify-signature true. It provides no release-key or
+Rekor guarantee. See [actions](../actions/README.md) and
+[release procedure](releasing.md).
 
 ## Worked Examples
 

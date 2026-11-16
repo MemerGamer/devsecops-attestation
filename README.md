@@ -9,7 +9,7 @@ Cryptographically verifiable security decisions in CI/CD pipelines.
 > **Canonical repository:** https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation (Forgejo, with Forgejo Actions CI, since 2026-11-15).
 > The GitHub repository `MemerGamer/devsecops-attestation` is a read-only push mirror: open pull requests and issues on Forgejo, not on GitHub.
 > Pull requests opened on GitHub before the move stay there as an archive and are not merged.
-> Release downloads and the `actions/setup` verification identity stay on GitHub releases.
+> G7 tooling prepares Forgejo releases with byte-identical GitHub copies; the first new release awaits the key ceremony and rehearsal. Legacy v0.4.0 to v0.4.2 downloads stay on GitHub. See [releasing](docs/releasing.md).
 
 **MSc Thesis:** Cryptographically Verifiable Security Decisions in CI/CD-based DevSecOps Pipelines
 **Author:** Kovács Bálint-Hunor - Sapientia EMTE, Marosvásárhelyi Kar
@@ -287,8 +287,10 @@ Use a branch in this repository for pull requests that must pass.
 | `TEST_SECRET_SCANNING_PUBLIC_KEY` | Contents of `keys/test/secret/public.hex` |
 
 Attestation chains produced on Forgejo are therefore TEST-signed CI
-evidence, not release evidence. Releases and their downloads stay on
-GitHub Releases.
+evidence, not release evidence. Release signing is a separate, local Hunor
+step with a key held off Forgejo. New releases use Forgejo with a byte-identical
+GitHub copy; legacy releases remain on GitHub. No new container image is
+built, so ghcr.io stays at v0.4.2. See [release procedure](docs/releasing.md).
 
 Never commit any `private.hex` file. The `keys/` directory is ignored.
 

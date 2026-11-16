@@ -299,9 +299,7 @@ rc=0
 env \
 	INPUT_VERSION="source" \
 	INPUT_REPOSITORY="MemerGamer/devsecops-attestation" \
-	INPUT_DOWNLOAD_BASE_URL="unused" \
 	INPUT_INSTALL_DIR="${SOURCE_INSTALL_DIR}" \
-	INPUT_VERIFY_SIGNATURE="false" \
 	GITHUB_ACTION_PATH="${ACTIONS_DIR}/setup" \
 	bash "${ACTIONS_DIR}/setup/setup.sh" || rc=$?
 check "setup.sh source build" 0 "${rc}"
@@ -316,7 +314,7 @@ check_true "setup.sh source installed deploy.rego" "${ok}"
 
 if command -v shellcheck >/dev/null 2>&1; then
 	rc=0
-	shellcheck "${ACTIONS_DIR}/setup/setup.sh" || rc=$?
+	shellcheck -x "${ACTIONS_DIR}/setup/setup.sh" || rc=$?
 	check "shellcheck setup.sh (post-edit)" 0 "${rc}"
 fi
 
@@ -389,15 +387,18 @@ cp "${REPO_ROOT}/policies/deploy.rego" "${ARCHIVE_STAGE}/policies/deploy.rego"
 ARCHIVE_NAME="devsecops-attestation_${FAKE_VERSION}_${FAKE_OS}_${FAKE_ARCH}.tar.gz"
 (cd "${ARCHIVE_STAGE}" && tar -czf "${RELEASE_DIR}/${ARCHIVE_NAME}" keygen attest verify gate policies)
 
-# goreleaser also emits a sibling "<archive>.sbom.json" checksum line in the
-# real checksums.txt; include one here so the checksum lookup regression
-# (a plain substring grep matching this sibling entry too, and choking
-# sha256sum -c with two lines) is covered.
-SBOM_NAME="${ARCHIVE_NAME}.sbom.json"
-printf '{}' >"${RELEASE_DIR}/${SBOM_NAME}"
+# Build the exact ten-name manifest even when signature verification is disabled.
+# Only the selected archive is installed in this smoke test; target-complete,
+# real-Cosign fixtures are exercised by .ci/test/test_release.py below.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../setup/release-policy.sh
+source "${ACTIONS_DIR}/setup/release-policy.sh"
+while IFS= read -r name; do
+	[ -f "${RELEASE_DIR}/${name}" ] || printf 'throwaway fixture\n' >"${RELEASE_DIR}/${name}"
+done < <(release_names "${FAKE_VERSION}")
 (
 	cd "${RELEASE_DIR}"
-	sha256sum "${ARCHIVE_NAME}" "${SBOM_NAME}" >checksums.txt
+	while IFS= read -r name; do sha256sum "${name}"; done < <(release_names "${FAKE_VERSION}") >checksums.txt
 )
 
 # Use a random high port and start the server without an enclosing subshell
@@ -465,7 +466,14 @@ TAMPER_TAG_DIR="${FAKE_RELEASE_ROOT}/releases/download/v8.8.8"
 mkdir -p "${TAMPER_TAG_DIR}"
 TAMPER_ARCHIVE="devsecops-attestation_8.8.8_${FAKE_OS}_${FAKE_ARCH}.tar.gz"
 cp "${RELEASE_DIR}/${ARCHIVE_NAME}" "${TAMPER_TAG_DIR}/${TAMPER_ARCHIVE}"
-printf '0000000000000000000000000000000000000000000000000000000000000  %s\n' "${TAMPER_ARCHIVE}" >"${TAMPER_TAG_DIR}/checksums.txt"
+while IFS= read -r name; do
+	[ -f "${TAMPER_TAG_DIR}/${name}" ] || printf 'throwaway fixture\n' >"${TAMPER_TAG_DIR}/${name}"
+done < <(release_names 8.8.8)
+(
+	cd "${TAMPER_TAG_DIR}"
+	while IFS= read -r name; do sha256sum "${name}"; done < <(release_names 8.8.8) >checksums.txt
+)
+printf 'tampered archive\n' >>"${TAMPER_TAG_DIR}/${TAMPER_ARCHIVE}"
 
 TAMPER_INSTALL_DIR="${WORK_DIR}/setup-tampered-install"
 rc=0
@@ -486,13 +494,23 @@ kill "${HTTP_SERVER_PID}" 2>/dev/null || true
 wait "${HTTP_SERVER_PID}" 2>/dev/null || true
 unset HTTP_SERVER_PID
 
+# Release verification and pre-signing adversarial tests. COSIGN_TEST_BIN may
+# name the verified real binary; no production action key override is added.
+if [ "${CI+x}" = x ] && ! [ -x "${COSIGN_TEST_BIN:-$(command -v cosign || true)}" ]; then
+	printf 'FAIL: real Cosign is required in CI; set COSIGN_TEST_BIN\n' >&2
+	exit 1
+fi
+rc=0
+PYTHONDONTWRITEBYTECODE=1 python3 "${REPO_ROOT}/.ci/test/test_release.py" || rc=$?
+check "release inventory, installer and workflow tests" 0 "${rc}"
+
 # ---------------------------------------------------------------------------
 # 11. static checks: shellcheck the run scripts, validate action.yml files
 # ---------------------------------------------------------------------------
 log "static checks"
 if command -v shellcheck >/dev/null 2>&1; then
 	rc=0
-	shellcheck "${ACTIONS_DIR}/setup/setup.sh" "${ACTIONS_DIR}/normalize-sign/normalize-sign.sh" "${ACTIONS_DIR}/gate/gate.sh" || rc=$?
+	shellcheck -x "${ACTIONS_DIR}/setup/setup.sh" "${ACTIONS_DIR}/normalize-sign/normalize-sign.sh" "${ACTIONS_DIR}/gate/gate.sh" || rc=$?
 	check "shellcheck" 0 "${rc}"
 else
 	printf 'SKIP: shellcheck not installed\n'
@@ -526,6 +544,8 @@ fi
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
+cleanup
+trap - EXIT
 log "summary"
 printf 'passed: %d, failed: %d\n' "${PASS}" "${FAIL}"
 if [ "${FAIL}" -gt 0 ]; then

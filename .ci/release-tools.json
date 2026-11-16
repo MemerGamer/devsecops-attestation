@@ -1,0 +1,30 @@
+{
+  "goreleaser": {
+    "version": "v2.18.2",
+    "url": "https://github.com/goreleaser/goreleaser/releases/download/v2.18.2/goreleaser_Linux_x86_64.tar.gz",
+    "sha256": "0a96edc9d9bc594e4a41cc4d59467c182062910ab24d9d1f6dd7b667d32606d3",
+    "checksums_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.18.2/checksums.txt",
+    "checksum_bundle_url": "https://github.com/goreleaser/goreleaser/releases/download/v2.18.2/checksums.txt.sigstore.json",
+    "certificate_identity": "https://github.com/goreleaser/goreleaser/.github/workflows/release.yml@refs/tags/v2.18.2",
+    "certificate_oidc_issuer": "https://token.actions.githubusercontent.com"
+  },
+  "syft": {
+    "version": "v1.57.1",
+    "url": "https://github.com/anchore/syft/releases/download/v1.57.1/syft_1.57.1_linux_amd64.tar.gz",
+    "sha256": "bf52519eb57f675d47c07d43213cb6dff6449f3d6d1147ff6701ed91f44eef0c",
+    "checksums_url": "https://github.com/anchore/syft/releases/download/v1.57.1/syft_1.57.1_checksums.txt",
+    "checksum_bundle_url": "https://github.com/anchore/syft/releases/download/v1.57.1/syft_1.57.1_checksums.txt.sigstore.json",
+    "certificate_identity": "https://github.com/anchore/syft/.github/workflows/release.yaml@refs/heads/main",
+    "certificate_oidc_issuer": "https://token.actions.githubusercontent.com"
+  },
+  "cosign-v3.1.4": {
+    "version": "v3.1.4",
+    "url": "https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-linux-amd64",
+    "sha256": "424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa"
+  },
+  "cosign-v3.0.2": {
+    "version": "v3.0.2",
+    "url": "https://github.com/sigstore/cosign/releases/download/v3.0.2/cosign-linux-amd64",
+    "sha256": "46dbdcb5467a3dfec2526923d0b3365e40c8d9dc00ec23d5aca3437449e8cbfd"
+  }
+}

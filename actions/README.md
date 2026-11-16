@@ -12,7 +12,7 @@ Reference on GitHub as:
 MemerGamer/devsecops-attestation/actions/<name>@<ref>
 ```
 
-Reference on Forgejo (once mirrored) as:
+Reference on canonical Forgejo as:
 
 ```
 https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation/actions/<name>@<ref>
@@ -47,10 +47,10 @@ instead of living inline in YAML.
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `version` | yes | - | Release version (`1.2.3` or `v1.2.3`), or `source` to build from this action's own checkout with `go build` (requires Go on `PATH`; useful for dogfooding and PR testing). |
-| `repository` | no | `MemerGamer/devsecops-attestation` | `owner/repo`, used for the cosign certificate-identity check. |
-| `download-base-url` | no | `${{ github.server_url }}/MemerGamer/devsecops-attestation/releases/download` | Base URL archives are downloaded from. Override for Forgejo or a private mirror. |
+| `repository` | no | `MemerGamer/devsecops-attestation` | Project label only; trust identities and keys are fixed in the action. |
+| `download-base-url` | no | empty | Legacy 0.4.0 to 0.4.2 always GitHub; >=0.5.0 GitHub on github.com, canonical Forgejo otherwise. Unset server requires an explicit URL for newer releases. |
 | `install-dir` | no | `${{ runner.temp }}/devsecops-attestation/bin` | Install directory, added to `PATH`. |
-| `verify-signature` | no | `true` | When `true` (the default), verifies `checksums.txt` against its cosign `sign-blob` Sigstore bundle (`checksums.txt.sigstore.json`), pinned to the release-please workflow's exact signer identity, before trusting it; fails the step with guidance if `cosign` is not on `PATH` (add `sigstore/cosign-installer`, or set this to `false` explicitly to skip verification). |
+| `verify-signature` | no | `true` | When `true` (the default), verifies `checksums.txt` against its cosign `sign-blob` Sigstore bundle (`checksums.txt.sigstore.json`), with a fixed release public key and required verified public Rekor evidence (legacy versions retain their fixed workflow identity and manifest digest pins), before trusting it; fails the step with guidance if `cosign` is not on `PATH` (add `sigstore/cosign-installer`, or set this to `false` explicitly to skip verification). |
 
 | Output | Description |
 |---|---|
@@ -369,13 +369,24 @@ form instead of the GitHub one:
     download-base-url: https://github.com/MemerGamer/devsecops-attestation/releases/download
 ```
 
-Releases stay on GitHub Releases. The action's default prefixes the
-download URL with `${{ github.server_url }}`, which on Forgejo points at the
-Forgejo server, so on Forgejo explicitly set `download-base-url` to the GitHub
-Releases URL (as above) when installing a released version. Everything else in the
-action (env var derivation, signer identity, log entry URLs) works unchanged
-because it only relies on the `GITHUB_*` variables Forgejo Actions also
-exports.
+With the G7 action, leave download-base-url empty for server-aware defaults.
+Legacy 0.4.0 to 0.4.2 default to GitHub on every server. New versions select
+GitHub on github.com and canonical Forgejo elsewhere; local release runs
+without GITHUB_SERVER_URL need an explicit URL. Explicit URLs always win.
+Bump the setup SHA and release version together for >=0.5.0; old setup pins
+cannot verify the new release key. The example above documents old pins.
+
+Stable Cosign v3 >=3.0.2 is required for verified release downloads. The
+candidate's real release key must replace its placeholder after Hunor's
+ceremony. Verification uses env -i and a fresh home, required public Rekor,
+fixed keys/identities and public TUF roots. No caller trust-root/key override
+is accepted. Explicit verification false retains version, inventory and
+checksum rules. See [release procedure](../docs/releasing.md).
+
+Version source separately trusts the action checkout (including local
+changes), Go and modules; pin and review that SHA. It consumes no release,
+needs no Cosign or URL and works with default verification true. A release
+failure never builds source or registers outputs/PATH.
 
 ### Secret naming convention
 

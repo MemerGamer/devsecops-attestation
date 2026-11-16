@@ -20,7 +20,7 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c
 ARG VERSION=dev
 ARG TARGETPLATFORM
 
-LABEL org.opencontainers.image.source="https://github.com/MemerGamer/devsecops-attestation" \
+LABEL org.opencontainers.image.source="https://forgejo.remote.kovacsbalinthunor.com/kbalinthunor/devsecops-attestation" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.title="devsecops-attestation" \

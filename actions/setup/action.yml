@@ -12,36 +12,37 @@ inputs:
       Release version to install, e.g. "1.2.3" or "v1.2.3". Pass "source" to
       build the binaries from this action's own checkout with `go build`
       (requires Go on PATH); useful for dogfooding and testing pull requests
-      against the actions themselves.
+      against the actions themselves. This separate trust path trusts the checkout,
+      local changes, Go and modules. It needs no release URL or Cosign and works
+      with the default verify-signature setting; release failures never select it.
     required: true
   repository:
     description: >-
-      owner/repo of the devsecops-attestation project, used to build the
-      cosign certificate-identity check and as documentation for
-      download-base-url overrides.
+      Project name for consumer documentation. Verification identities and release
+      keys are fixed in the pinned action and cannot be overridden by this input.
     required: false
     default: MemerGamer/devsecops-attestation
   download-base-url:
     description: >-
       Base URL that release archives are downloaded from; the tag
-      (v<version>) and file name are appended. Defaults to this repository's
-      GitHub Releases. Override for Forgejo or a private mirror, e.g.
+      (v<version>) and file name are appended. When empty, legacy 0.4.0 to 0.4.2 use GitHub; newer releases use GitHub
+      on github.com and canonical Forgejo on other servers. Local release
+      runs require an explicit URL. Override for a mirror, e.g.
       https://forgejo.example.com/kbalinthunor/devsecops-attestation/releases/download.
     required: false
-    default: ${{ github.server_url }}/MemerGamer/devsecops-attestation/releases/download
+    default: ""
   install-dir:
     description: Directory the binaries and policy are installed into and added to PATH.
     required: false
     default: ${{ runner.temp }}/devsecops-attestation/bin
   verify-signature:
     description: >-
-      When "true" (the default), verify checksums.txt against its cosign
-      sign-blob Sigstore bundle (checksums.txt.sigstore.json), pinned to the
-      release-please workflow's exact signer identity, before trusting it;
-      requires cosign on PATH and fails the step with guidance if cosign is
-      not found (never silently skips the check). Set to "false" explicitly
-      to skip verification (e.g. for local/demo runs with a fake release, or
-      when version is "source").
+      When "true" (the default), verify checksums.txt with a fixed release key
+      and cryptographically verified public Rekor evidence. Legacy 0.4.0 to
+      0.4.2 require their fixed GitHub workflow identity and pinned manifest
+      digests. Requires stable Cosign v3, at least v3.0.2. An explicit "false"
+      skips signatures and Rekor only; version and checksum rules still apply.
+      Source mode consumes no release and needs no signature verification.
     required: false
     default: "true"
 

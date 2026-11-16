@@ -45,3 +45,9 @@ keys/
 gate-decision.json
 attestation-chain.json
 chain.json
+
+# Isolated release tools (verified before use)
+/.release-tools/
+
+# Python bytecode caches
+__pycache__/

@@ -9,19 +9,15 @@
 
 `go.mod` carries both a `go 1.26.0` directive (the minimum language version)
 and a `toolchain go1.26.8` directive (the exact patch used to build signed
-releases; see `.github/workflows/release-please.yml`). This keeps release
+releases; see `.forgejo/workflows/release.yml`). This keeps release
 builds reproducible: the same exact patch is used on every build, rather
 than drifting to whatever `1.26.x` happens to be newest at release time.
 
-In CI, `actions/setup-go` reads this `toolchain` line from `go.mod` and
-installs that exact version from the runner's tool cache (or the
-`actions/go-versions` manifest), setting `GOTOOLCHAIN=local` - so the `go`
-command itself never downloads or verifies a toolchain in CI. The
-sum.golang.org-verified toolchain download only happens for local builds
-run with `GOTOOLCHAIN=auto` against an older installed Go, where the `go`
-command fetches and checksum-verifies the pinned toolchain on its own. The
-pin's value is reproducibility (an exact, reviewed patch) and a controlled
-bump path, not an in-CI download/verify step.
+Release CI uses `.ci/install-go.sh` to download that exact patch, verifies
+its repository-pinned SHA-256 and uses fresh module/build caches,
+GOTOOLCHAIN=local, GOENV=off and GOWORK=off. Ordinary test jobs use
+`actions/setup-go`. Local release rebuilds use the same isolated release
+script and toolchain; ordinary local builds may use GOTOOLCHAIN=auto.
 
 It is not confirmed whether Dependabot's `gomod` updates bump the
 `toolchain` line on its own (it manages `require` entries reliably; the
@@ -150,26 +146,17 @@ New tool integrations live in `pkg/normalize/`, one file per tool (e.g.
 
 ## Releasing
 
-Release automation is paused since the move to Forgejo on 2026-11-15: no new release is cut until the release path is decided.
-The description below is how releases were made until then.
+G7 uses unsigned Forgejo build artifacts followed by Hunor's independent
+local rebuild, key signing with public Rekor, canonical Forgejo publication
+and a byte-identical GitHub copy. Hunor alone commits, tags, signs and
+publishes. No new container image is built. The build-tool pins are audited;
+the key placeholder must be replaced before the public rehearsal and first release.
 
-Releases are driven by [release-please](https://github.com/googleapis/release-please):
-merging its release PR (generated automatically against `main` from
-conventional commits) tags a release and triggers the `publish` job in
-`.github/workflows/release-please.yml`, which runs GoReleaser to build the
-per-OS/arch archives, checksums, SBOMs, and a signed OCI image
-(`ghcr.io/memergamer/devsecops-attestation`, keyless-signed with cosign),
-and uploads them to the GitHub release release-please already created.
-
-To dry-run the release packaging locally without publishing or signing:
-
-```shell
-make snapshot
-```
-
-This runs `goreleaser release --snapshot --clean`, producing local archives
-and images under `dist/` for inspection. Validate `.goreleaser.yaml` itself
-with `goreleaser check`.
+See [docs/releasing.md](docs/releasing.md) for the exact procedure, inventory
+checks, external mirror checker, rehearsal, rollback and remaining V-items.
+`scripts/release-prep.sh VERSION` prepares the conventional-commit changelog
+PR on a release branch; it does not commit or tag. `make snapshot` builds
+unsigned local archives without publishing, signing, SBOMs or Docker.
 
 ## Commit Conventions
 

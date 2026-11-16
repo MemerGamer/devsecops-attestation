@@ -41,12 +41,12 @@ flowchart TB
 
     POL --> PD["deploy.rego -- canonical, parameterizable deploy gate policy (single source of truth)"]
 
-    GH --> GW["workflows/ -- GitHub Actions pipeline, release-please, dependabot-auto-merge"]
+    GH --> GW["workflows/ -- GitHub mirror dependabot-auto-merge"]
 
     R --> TEST["test/"]
     TEST --> TI["integration/ -- end-to-end pipeline tests (build tag: integration)"]
 
-    R --> BUILD["Dockerfile, Dockerfile.goreleaser, .goreleaser.yaml, Makefile -- build, release, and packaging"]
+    R --> BUILD["Dockerfile, Dockerfile.goreleaser, .goreleaser.yaml, Makefile -- build, unsigned release archives, and packaging"]
 ```
 
 ## Package Responsibilities
@@ -200,3 +200,8 @@ values are what `gate evaluate --policy-hash` / `--config-hash` pin.
 - The composite actions under `actions/` are bash-only (`shell: bash`, no
   Node.js), so they run unmodified on both GitHub Actions and Forgejo
   Actions runners.
+
+Release tooling: `.forgejo/workflows/release.yml`, `scripts/release-*.sh`,
+`.ci/release_assets.py` and the local human-only `scripts/release_publish.py`.
+The trust policy and public release key live inside the pinned setup action.
+See [releasing](releasing.md).
