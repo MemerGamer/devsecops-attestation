@@ -504,13 +504,18 @@ rc=0
 PYTHONDONTWRITEBYTECODE=1 python3 "${REPO_ROOT}/.ci/test/test_release.py" || rc=$?
 check "release inventory, installer and workflow tests" 0 "${rc}"
 
+# The human ceremony is exercised only with a digest-pinned fake Cosign.
+rc=0
+PYTHONDONTWRITEBYTECODE=1 python3 "${REPO_ROOT}/.ci/test/test_release_key_ceremony.py" || rc=$?
+check "release key ceremony tests (fake Cosign only)" 0 "${rc}"
+
 # ---------------------------------------------------------------------------
 # 11. static checks: shellcheck the run scripts, validate action.yml files
 # ---------------------------------------------------------------------------
 log "static checks"
 if command -v shellcheck >/dev/null 2>&1; then
 	rc=0
-	shellcheck -x "${ACTIONS_DIR}/setup/setup.sh" "${ACTIONS_DIR}/normalize-sign/normalize-sign.sh" "${ACTIONS_DIR}/gate/gate.sh" || rc=$?
+	shellcheck -x "${ACTIONS_DIR}/setup/setup.sh" "${ACTIONS_DIR}/normalize-sign/normalize-sign.sh" "${ACTIONS_DIR}/gate/gate.sh" "${REPO_ROOT}/scripts/release-key-ceremony.sh" || rc=$?
 	check "shellcheck" 0 "${rc}"
 else
 	printf 'SKIP: shellcheck not installed\n'

@@ -130,6 +130,31 @@ version deny-list in `release-policy.sh` is the revocation mechanism; a
 pre-release flag does not revoke a version. See SECURITY.md for the blast
 radius and rotation requirements.
 
+### Run the ceremony
+
+Hunor runs `scripts/release-key-ceremony.sh` himself at an interactive
+terminal on pc (Linux/amd64), with `COSIGN_PASSWORD` and `COSIGN_KEY` unset.
+Use `--dry-run` first to review the steps without writes or Cosign execution.
+The script verifies the pinned Cosign digest before execution and prints its
+version. Cosign prompts directly for a strong, nonempty passphrase during
+generation and the local sign/verify check; no agent runs the generation path.
+
+Mount removable media and provide an existing directory when prompted. It
+must be outside git work trees and `/tmp`, and support owned 0700 directories
+and 0600 files. The script copies both keys and verifies the backup digests;
+unmount and store the media offline afterward. Typing `SKIP` leaves the merge
+checklist open. The local round trip does not upload to Rekor; release
+publication still requires public Rekor evidence.
+
+Only the public key replaces the action's exact placeholder. Paste the printed
+fingerprint lines into SECURITY.md, the PR description and release notes,
+replacing the outdated placeholder/no-fingerprint text manually. The script
+does not stage, commit, tag or push. Existing keys or a replaced placeholder
+cause refusal; `--rotate` stops with the SECURITY.md rotation procedure.
+If interrupted after generation, the custody keys remain in place and the
+merge checklist remains open; review backup and verification manually rather
+than deleting keys to rerun the ceremony.
+
 ## Prepare and build
 
 1. On a clean, freshly fetched main equal to origin/main, Hunor runs
