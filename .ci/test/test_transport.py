@@ -311,6 +311,30 @@ class ForgejoWorkflowInvariantTests(unittest.TestCase):
                 self.assertNotIn("environment", job)
                 self.assertEqual(job["runs-on"], "ubuntu-latest")
 
+    def test_least_privilege_and_explicit_pinned_sources(self):
+        self.assertEqual(self.workflow["permissions"], {})
+        for name, job in self.workflow["jobs"].items():
+            with self.subTest(job=name):
+                self.assertIn("permissions", job)
+        self.assertEqual(self.workflow["jobs"]["publish"]["permissions"], {"contents": "read", "id-token": "write", "attestations": "write"})
+        for name in ["test", "sast", "sca", "config", "secret", "sign", "actions-selftest"]:
+            with self.subTest(job=name):
+                self.assertEqual(self.workflow["jobs"][name]["permissions"], {"contents": "read"})
+        steps = [step for job in self.workflow["jobs"].values() for step in job.get("steps", []) if "uses" in step]
+        for step in steps:
+            uses = step["uses"]
+            with self.subTest(uses=uses):
+                if uses.startswith("./"):
+                    continue
+                self.assertRegex(uses, r"^https://(data\.forgejo\.org|github\.com)/[^@]+@[0-9a-f]{40}$")
+                if "/actions/checkout@" in uses:
+                    self.assertFalse(step["with"]["persist-credentials"])
+        self.assertEqual(sum("/actions/checkout@" in step["uses"] for step in steps), 7)
+        for line in self.text.splitlines():
+            if "curl " in line:
+                with self.subTest(line=line.strip()):
+                    self.assertIn("--proto '=https' --tlsv1.2", line)
+
     def test_upload_artifact_pinned_everywhere(self):
         uses = [step.get("uses", "") for job in self.workflow["jobs"].values() for step in job.get("steps", [])]
         uploads = [u for u in uses if "upload-artifact" in u]
