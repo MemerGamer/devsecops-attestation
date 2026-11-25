@@ -2,6 +2,7 @@
 """Hunor's local release publisher. No CI or noninteractive entry point."""
 import argparse
 import filecmp
+import hashlib
 import importlib.util
 import io
 import json
@@ -28,6 +29,8 @@ PAIRS = {
     'kbalinthunor/devsecops-attestation': 'MemerGamer/devsecops-attestation',
     'kbalinthunor/g7-release-rehearsal': 'MemerGamer/scratch-mirror-test-public',
 }
+# Release signing uses the same Cosign pin as scripts/release-key-ceremony.sh.
+COSIGN_PIN = 'cosign-v3.1.4'
 CI_NAMES = ('CI', 'GITHUB_ACTIONS', 'FORGEJO_ACTIONS', 'GITEA_ACTIONS', 'GITHUB_RUN_ID', 'GITEA_RUN_ID', 'FORGEJO_RUN_ID', 'RUNNER_ENVIRONMENT')
 
 
@@ -248,12 +251,57 @@ def private_key_path(key):
     return key
 
 
+def cosign_pin():
+    pin = json.loads((ROOT/'.ci/release-tools.json').read_text())[COSIGN_PIN]
+    if not re.fullmatch('[0-9a-f]{64}', pin.get('sha256', '')):
+        raise ValueError('invalid cosign SHA-256 pin in .ci/release-tools.json: '+COSIGN_PIN)
+    if not re.fullmatch(r'v3\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', pin.get('version', '')):
+        raise ValueError('invalid cosign version pin in .ci/release-tools.json: '+COSIGN_PIN)
+    return pin['version'], pin['sha256']
+
+
+def sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def pinned_cosign(scratch):
+    """Resolve Cosign like the key ceremony: a private copy of the PATH binary,
+    or the verified installer, accepted only with the pinned SHA-256."""
+    version, expected = cosign_pin()
+    if os.uname().sysname != 'Linux' or os.uname().machine != 'x86_64':
+        raise ValueError('the pinned release-signing Cosign requires linux/amd64')
+    found = shutil.which('cosign')
+    if found:
+        # Verify and execute the same private copy, even if PATH changes later.
+        binary = scratch/'cosign'
+        shutil.copyfile(found, binary)
+        binary.chmod(0o700)
+        if sha256(binary) != expected:
+            raise ValueError(f'PATH cosign SHA-256 does not match the {COSIGN_PIN} pin in .ci/release-tools.json; '
+                             'remove it from PATH to use the verified installer')
+    else:
+        try:
+            run(['bash', str(ROOT/'.ci/install-release-tools.sh'), COSIGN_PIN],
+                env=dict(os.environ, RELEASE_TOOLS_DIR=str(scratch/'tools')))
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f'cosign is not on PATH and the pinned {COSIGN_PIN} install failed') from error
+        binary = scratch/'tools'/COSIGN_PIN
+        if not binary.is_file() or binary.is_symlink():
+            raise ValueError(f'pinned cosign binary is missing after install: {binary}')
+        if sha256(binary) != expected:
+            raise ValueError('installed cosign SHA-256 does not match the pin in .ci/release-tools.json')
+    return binary, version, expected
+
+
 def sign(directory, key):
     human_gate()
     key = private_key_path(key)
-    run(['bash', '-euo', 'pipefail', '-c',
-         'source "$1/release-policy.sh"; release_cosign sign-blob --key "$2" --bundle "$3/checksums.txt.sigstore.json" --new-bundle-format=true --use-signing-config=false --tlog-upload=true --rekor-url=https://rekor.sigstore.dev "$3/checksums.txt"',
-         'release-sign', str(ROOT/'actions/setup'), str(key), str(directory)])
+    with tempfile.TemporaryDirectory(prefix='release-cosign-bin-') as scratch:
+        binary, version, expected = pinned_cosign(Path(scratch))
+        # release_cosign_pinned rechecks the SHA-256 before every execution.
+        run(['bash', '-euo', 'pipefail', '-c',
+             'source "$1/release-policy.sh"; release_cosign_pinned "$4" "$5" "$6" sign-blob --key "$2" --bundle "$3/checksums.txt.sigstore.json" --new-bundle-format=true --use-signing-config=false --tlog-upload=true --rekor-url=https://rekor.sigstore.dev "$3/checksums.txt"',
+             'release-sign', str(ROOT/'actions/setup'), str(key), str(directory), str(binary), expected, version])
 
 
 def check_ancestor(commit):

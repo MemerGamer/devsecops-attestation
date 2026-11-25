@@ -97,6 +97,180 @@ class PublisherTests(unittest.TestCase):
                 real_cosign(self)
 
 
+class PinnedSigningTests(unittest.TestCase):
+    """Release signing must run only the Cosign bytes pinned for the key ceremony.
+    Uses a fake Cosign with a known digest and throwaway non-key data."""
+
+    FAKE_COSIGN = """#!/usr/bin/python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+with open({log!r}, 'a') as log:
+    log.write(json.dumps({{'argv0': sys.argv[0], 'args': args, 'path': os.environ.get('PATH'),
+                           'home': os.environ.get('HOME'), 'env': sorted(os.environ)}})+'\\n')
+if args == ['version']:
+    print('GitVersion: {version}')
+    {on_version}
+elif args[:1] == ['sign-blob']:
+    bundle = args[args.index('--bundle')+1]
+    pathlib.Path(bundle).write_text('fake bundle for '+args[-1])
+else:
+    raise SystemExit('unexpected fake cosign command')
+"""
+
+    def setUp(self):
+        if os.uname().sysname != 'Linux' or os.uname().machine != 'x86_64':
+            self.skipTest('pinned release signing is linux/amd64 only')
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.log = self.base/'cosign.log'
+        # A disposable root: the real installer, policy and pin file, with the
+        # cosign-v3.1.4 digest replaced by the fake binary's digest.
+        self.root = self.base/'root'
+        (self.root/'.ci').mkdir(parents=True)
+        shutil.copyfile(ROOT/'.ci/install-release-tools.sh', self.root/'.ci/install-release-tools.sh')
+        shutil.copytree(ROOT/'actions/setup', self.root/'actions/setup')
+        self.fake = self.base/'fake-cosign'
+        self.write_fake()
+        self.digest = hashlib.sha256(self.fake.read_bytes()).hexdigest()
+        pins = json.loads((ROOT/'.ci/release-tools.json').read_text())
+        self.assertEqual(pins[publisher.COSIGN_PIN]['version'], 'v3.1.4')
+        pins[publisher.COSIGN_PIN]['sha256'] = self.digest
+        (self.root/'.ci/release-tools.json').write_text(json.dumps(pins))
+        self.keys = self.base/'keys'
+        self.keys.mkdir(mode=0o700)
+        self.key = self.keys/'cosign.key'
+        self.key.write_text('throwaway non-key data')
+        self.key.chmod(0o600)
+        self.payload = self.base/'payload'
+        self.payload.mkdir()
+        (self.payload/'checksums.txt').write_text('fake manifest\n')
+        # PATH holds only the tools the publisher and installer need; curl is a stub.
+        self.bin = self.base/'bin'
+        self.bin.mkdir()
+        for name in ('bash', 'python3', 'uname', 'dirname', 'mkdir', 'mktemp', 'chmod', 'rm',
+                     'sha256sum', 'cut', 'awk', 'env', 'cat'):
+            (self.bin/name).symlink_to(shutil.which(name))
+        self.curl_source = self.base/'download'
+        (self.bin/'curl').write_text(f"""#!/usr/bin/python3
+import pathlib, shutil, sys
+source = pathlib.Path({str(self.curl_source)!r})
+if not source.is_file():
+    sys.exit(22)
+shutil.copyfile(source, sys.argv[sys.argv.index('-o')+1])
+""")
+        (self.bin/'curl').chmod(0o755)
+        patcher = patch.dict(os.environ, {'PATH': str(self.bin)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for target, name in ((publisher, 'ROOT'), (publisher, 'human_gate')):
+            patcher = patch.object(target, name, self.root if name == 'ROOT' else lambda: None)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def write_fake(self, version='v3.1.4', on_version='pass', path=None):
+        path = path or self.fake
+        path.write_text(self.FAKE_COSIGN.format(log=str(self.log), version=version, on_version=on_version))
+        path.chmod(0o755)
+
+    def calls(self):
+        return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+
+    def assert_signed_with_private_copy(self, expected_name):
+        calls = self.calls()
+        self.assertEqual([c['args'][0] for c in calls], ['version', 'sign-blob'])
+        for call in calls:
+            executed = Path(call['argv0'])
+            self.assertEqual(executed.name, expected_name)
+            self.assertNotEqual(executed.parent, self.bin)
+            self.assertTrue(executed.name.startswith('cosign'))
+            self.assertFalse(executed.exists(), 'private copy must be removed after signing')
+            self.assertEqual(call['path'], '/usr/bin:/bin')
+            self.assertFalse(Path(call['home']).exists())
+            self.assertFalse([n for n in call['env'] if n.startswith(('COSIGN_', 'SIGSTORE_', 'TUF_'))])
+        # Signing identity, key reference, flags and outputs are unchanged.
+        self.assertEqual(calls[1]['args'], [
+            'sign-blob', '--key', str(self.key), '--bundle', str(self.payload/'checksums.txt.sigstore.json'),
+            '--new-bundle-format=true', '--use-signing-config=false', '--tlog-upload=true',
+            '--rekor-url=https://rekor.sigstore.dev', str(self.payload/'checksums.txt')])
+        self.assertEqual((self.payload/'checksums.txt.sigstore.json').read_text(),
+                         'fake bundle for '+str(self.payload/'checksums.txt'))
+
+    def test_pin_is_the_key_ceremony_pin(self):
+        ceremony = (ROOT/'scripts/release-key-ceremony.sh').read_text()
+        self.assertIn(f'\npin_name={publisher.COSIGN_PIN}\n', ceremony)
+        with patch.object(publisher, 'ROOT', ROOT):
+            version, digest = publisher.cosign_pin()
+        pin = json.loads((ROOT/'.ci/release-tools.json').read_text())[publisher.COSIGN_PIN]
+        self.assertEqual((version, digest), (pin['version'], pin['sha256']))
+
+    def test_correct_pinned_path_binary_is_used(self):
+        shutil.copyfile(self.fake, self.bin/'cosign')
+        (self.bin/'cosign').chmod(0o755)
+        publisher.sign(self.payload, self.key)
+        self.assert_signed_with_private_copy('cosign')
+
+    def test_wrong_digest_on_path_refuses_before_execution(self):
+        self.write_fake(path=self.bin/'cosign', version='v3.1.4 ')
+        with self.assertRaisesRegex(ValueError, 'PATH cosign SHA-256 does not match the cosign-v3.1.4 pin'):
+            publisher.sign(self.payload, self.key)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.payload/'checksums.txt.sigstore.json').exists())
+
+    def test_missing_binary_refuses_when_pinned_install_fails(self):
+        with self.assertRaisesRegex(ValueError, 'cosign is not on PATH and the pinned cosign-v3.1.4 install failed'):
+            publisher.sign(self.payload, self.key)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.payload/'checksums.txt.sigstore.json').exists())
+
+    def test_installer_fallback_uses_verified_download(self):
+        shutil.copyfile(self.fake, self.curl_source)
+        publisher.sign(self.payload, self.key)
+        self.assert_signed_with_private_copy(publisher.COSIGN_PIN)
+
+    def test_installer_rejects_corrupt_download_before_execution(self):
+        self.write_fake(path=self.curl_source, on_version='print("tampered")')
+        with self.assertRaisesRegex(ValueError, 'pinned cosign-v3.1.4 install failed'):
+            publisher.sign(self.payload, self.key)
+        self.assertEqual(self.calls(), [])
+
+    def policy(self, binary, digest, version, *args):
+        return subprocess.run(['bash', '-euo', 'pipefail', '-c',
+                               'source "$1/release-policy.sh"; shift; release_cosign_pinned "$@"',
+                               'pinned-policy', str(self.root/'actions/setup'), str(binary), digest, version, *args],
+                              capture_output=True, text=True, timeout=60)
+
+    def test_policy_rechecks_digest_before_every_execution(self):
+        # The binary rewrites itself after the version call; signing must not run.
+        binary = self.base/'self-modifying-cosign'
+        self.write_fake(path=binary, on_version='open(sys.argv[0], "a").write("# changed\\n")')
+        digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+        result = self.policy(binary, digest, 'v3.1.4', 'sign-blob', '--bundle', str(self.base/'b'), str(self.base/'m'))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('cosign SHA-256 does not match the pin', result.stderr)
+        self.assertEqual([c['args'][0] for c in self.calls()], ['version'])
+        self.assertFalse((self.base/'b').exists())
+
+    def test_policy_refuses_missing_wrong_digest_and_wrong_version(self):
+        cases = [
+            (self.base/'absent', self.digest, 'v3.1.4', 'pinned cosign binary is missing'),
+            (self.fake, '0'*64, 'v3.1.4', 'cosign SHA-256 does not match the pin'),
+            (self.fake, self.digest, 'v3.0.2', 'cosign version v3.1.4 differs from the pin v3.0.2'),
+            (Path('relative-cosign'), self.digest, 'v3.1.4', 'requires an absolute path'),
+            (self.fake, '', 'v3.1.4', 'requires an absolute path, a SHA-256 pin'),
+            (self.fake, self.digest, '', 'exact stable v3 version'),
+        ]
+        link = self.base/'linked-cosign'
+        link.symlink_to(self.fake)
+        cases.append((link, self.digest, 'v3.1.4', 'pinned cosign binary is missing'))
+        for binary, digest, version, message in cases:
+            with self.subTest(binary=binary.name, version=version, digest=digest[:4]):
+                result = self.policy(binary, digest, version, 'sign-blob', str(self.base/'m'))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+        self.assertEqual([c['args'] for c in self.calls()], [['version']])
+
+
 class InventoryTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

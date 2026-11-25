@@ -59,19 +59,49 @@ release_manifest_check() {
 }
 
 release_cosign() (
-	# A subshell confines traps and deletes the private home on every exit.
+	# Consumer verification: any stable Cosign v3 >= v3.0.2 on PATH.
 	set -euo pipefail
-	local cosign_bin cosign_home version
+	local cosign_bin
 	cosign_bin="$(command -v cosign)" || { echo 'cosign is not on PATH (stable v3.0.2 or later required)' >&2; exit 1; }
 	case "${cosign_bin}" in
 	/*) ;;
 	*) cosign_bin="$(cd "$(dirname "${cosign_bin}")" && pwd)/$(basename "${cosign_bin}")" ;;
 	esac
+	release_cosign_exec "${cosign_bin}" '' '' "$@"
+)
+
+release_cosign_pinned() (
+	# Release signing: only the exact binary pinned in .ci/release-tools.json.
+	# Arguments: absolute binary path, SHA-256 pin, exact version, Cosign arguments.
+	set -euo pipefail
+	[[ "$1" == /* && "$2" =~ ^[0-9a-f]{64}$ && "$3" =~ ^v3\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+		echo 'pinned cosign requires an absolute path, a SHA-256 pin and an exact stable v3 version' >&2; exit 1;
+	}
+	release_cosign_exec "$@"
+)
+
+release_cosign_exec() (
+	# A subshell confines traps and deletes the private home on every exit.
+	# Arguments: absolute binary, SHA-256 pin or empty, exact version or empty, Cosign arguments.
+	set -euo pipefail
+	local cosign_bin="$1" expected_digest="$2" pinned_version="$3" cosign_home version
+	shift 3
 	umask 077
 	cosign_home="$(mktemp -d "${TMPDIR:-/tmp}/release-cosign.XXXXXX")" || exit 1
 	trap 'rm -rf "${cosign_home}"' EXIT
 	chmod 700 "${cosign_home}" || exit 1
+	check_digest() {
+		# Recheck the pinned bytes immediately before every execution.
+		[ -n "${expected_digest}" ] || return 0
+		[ -f "${cosign_bin}" ] && [ ! -L "${cosign_bin}" ] || {
+			echo "pinned cosign binary is missing: ${cosign_bin}" >&2; exit 1;
+		}
+		[ "$(sha256sum -- "${cosign_bin}" | cut -d ' ' -f 1)" = "${expected_digest}" ] || {
+			echo "cosign SHA-256 does not match the pin in .ci/release-tools.json: ${cosign_bin}" >&2; exit 1;
+		}
+	}
 	clean_cosign() {
+		check_digest
 		env -i PATH=/usr/bin:/bin LC_ALL=C \
 			HOME="${cosign_home}" USERPROFILE="${cosign_home}" \
 			XDG_CACHE_HOME="${cosign_home}/cache" XDG_CONFIG_HOME="${cosign_home}/config" \
@@ -80,6 +110,11 @@ release_cosign() (
 			"${cosign_bin}" "$@"
 	}
 	version="$(clean_cosign version | awk '$1 == "GitVersion:" {print $2}')"
+	if [ -n "${pinned_version}" ]; then
+		[ "${version}" = "${pinned_version}" ] || {
+			echo "cosign version ${version:-unknown} differs from the pin ${pinned_version}" >&2; exit 1;
+		}
+	fi
 	[[ "${version}" =~ ^v3\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
 		echo 'cosign must be stable v3, at least v3.0.2' >&2; exit 1;
 	}
