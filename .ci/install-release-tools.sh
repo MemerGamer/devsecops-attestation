@@ -14,9 +14,12 @@ for name in sys.argv[2:] or ('goreleaser', 'syft'):
     pin = pins[name]
     if not re.fullmatch('[0-9a-f]{64}', pin['sha256']):
         raise SystemExit('release tool pin audit incomplete: '+name)
+    # Pins name official GitHub release assets; refuse any other origin.
+    if not pin['url'].startswith('https://github.com/'):
+        raise SystemExit('release tool URL must be an https://github.com/ release asset: '+name)
     with tempfile.TemporaryDirectory(prefix='release-tool-') as scratch:
         archive = Path(scratch)/'tool.tar.gz'
-        subprocess.run(['curl', '-fsSL', '--retry', '5', '--connect-timeout', '20', '--max-time', '300', pin['url'], '-o', str(archive)], check=True)
+        subprocess.run(['curl', '-fsSL', '--proto', '=https', '--tlsv1.2', '--retry', '5', '--connect-timeout', '20', '--max-time', '300', pin['url'], '-o', str(archive)], check=True)
         if hashlib.sha256(archive.read_bytes()).hexdigest() != pin['sha256']:
             raise SystemExit('release tool archive digest mismatch: '+name)
         destination = Path(sys.argv[1])/name

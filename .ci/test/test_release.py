@@ -430,15 +430,23 @@ class ReleaseWorkflowInvariantTests(unittest.TestCase):
         self.assertNotIn('docker-trusted', text)
         self.assertNotIn('environment:', text)
         self.assertNotIn('download-artifact', text)
-        self.assertEqual(workflow['permissions'], {'contents': 'read'})
+        self.assertEqual(workflow['permissions'], {})
+        self.assertEqual(workflow['jobs']['build']['permissions'], {'contents': 'read'})
         uses = [step['uses'] for job in workflow['jobs'].values() for step in job.get('steps', []) if 'uses' in step]
         self.assertEqual(uses, [
-            'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+            'https://data.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
             'https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245'])
         for job in workflow['jobs'].values():
             self.assertNotIn('environment', job)
         self.assertFalse(workflow['concurrency']['cancel-in-progress'])
         self.assertEqual(workflow['jobs']['build']['runs-on'], 'ubuntu-latest')
+        self.assertFalse(workflow['jobs']['build']['steps'][0]['with']['persist-credentials'])
+        pins = json.loads((ROOT/'.ci/release-tools.json').read_text())
+        for name, pin in pins.items():
+            self.assertTrue(pin['url'].startswith('https://github.com/'), name)
+            self.assertRegex(pin['sha256'], '^[0-9a-f]{64}$')
+        for script in ['.ci/install-release-tools.sh', '.ci/install-go.sh']:
+            self.assertIn('=https', (ROOT/script).read_text())
         config = yaml.safe_load((ROOT/'.goreleaser.yaml').read_text())
         for key in ['signs', 'docker_signs', 'dockers_v2']:
             self.assertNotIn(key, config)

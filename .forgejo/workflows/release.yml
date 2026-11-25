@@ -1,7 +1,7 @@
 name: Build release inputs
 
-permissions:
-  contents: read
+# No default token scopes; the job requests only what it uses.
+permissions: {}
 
 on:
   push:
@@ -23,8 +23,15 @@ jobs:
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
+    # contents: read to fetch main and the tag. No write scope: the job
+    # uploads an artifact, never a release, tag or status.
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Explicit action source, so resolution does not depend on the server's
+      # DEFAULT_ACTIONS_URL. The SHA equals the v7.0.1 tag commit on both
+      # data.forgejo.org/actions/checkout and github.com/actions/checkout.
+      - uses: https://data.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
@@ -53,6 +60,8 @@ jobs:
           python3 .ci/release_assets.py stage "$RELEASE_TAG" dist --destination "$RUNNER_TEMP/release-input"
       # CI output is untrusted input for Hunor's rebuild, never a release.
       # Artifact transport avoids giving this job a release API write step.
+      # The SHA equals the v5 tag commit of data.forgejo.org/forgejo/upload-artifact
+      # (no v5.x tags exist); upstream actions/upload-artifact v4+ does not run on Forgejo.
       - name: Upload unsigned inputs for local verification
         uses: https://data.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5
         with:

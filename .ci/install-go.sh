@@ -13,7 +13,7 @@ checksum="$(awk -v asset="${asset}" '$2 == asset { print $1; count++ } END { if 
 	|| { echo 'no unique pinned SHA-256 for go.mod toolchain' >&2; exit 1; }
 [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || { echo 'invalid pinned toolchain SHA-256' >&2; exit 1; }
 install_dir="$(mktemp -d "${RUNNER_TEMP}/sign-go.XXXXXX")"
-curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 20 --max-time 300 \
+curl -fsSL --proto '=https' --tlsv1.2 --retry 5 --retry-delay 3 --connect-timeout 20 --max-time 300 \
 	"https://go.dev/dl/${asset}" -o "${install_dir}/${asset}"
 printf '%s  %s\n' "${checksum}" "${install_dir}/${asset}" | sha256sum -c -
 tar -xzf "${install_dir}/${asset}" -C "${install_dir}"

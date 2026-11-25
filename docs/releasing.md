@@ -100,6 +100,18 @@ identities, through release_cosign's clean environment, public trust roots
 and required transparency-log verification. Both returned Verified OK.
 No signatures were created and nothing was uploaded during this audit.
 
+Rechecked independently on 2026-11-25: the GoReleaser, syft and Go archive
+digests match the upstream checksum files and go.dev metadata; both checksum
+bundles verified again with Cosign v3.1.4 against the identities above. The
+two Cosign binaries match their GitHub release asset digests, and their
+`cosign-linux-amd64.sigstore.json` bundles verified against the upstream
+signer `keyless@projectsigstore.iam.gserviceaccount.com` (issuer
+`https://accounts.google.com`). Both installers download over HTTPS only
+(TLS 1.2 or later), and pins must name `https://github.com/` assets. The
+release workflow has no default token scopes; its job requests
+`contents: read`. Each action reference names its source explicitly and is
+pinned to the commit of its tag (checkout v7.0.1, Forgejo upload-artifact v5).
+
 The installed official binaries passed `goreleaser check` and completed
 `goreleaser release --snapshot --clean --skip=publish,sign,docker --parallelism 2`
 under `env -i`, with no token. The environment used pinned Go 1.26.8,
