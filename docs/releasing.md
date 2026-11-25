@@ -236,13 +236,19 @@ must verify.
 Signing uses only the Cosign pinned for the key ceremony
 (`cosign-v3.1.4` in `.ci/release-tools.json`), resolved the same way: a
 private 0700 copy of the PATH `cosign`, or, if none is on PATH, a download
-through `.ci/install-release-tools.sh`. The publisher refuses before signing
-when the copy's SHA-256 differs from the pin, the binary is missing or its
-version is not the pinned version. `release_cosign_pinned` rechecks the
-SHA-256 before every Cosign execution. Post-signing and distribution
-verification keep using `release_cosign`, the consumer policy (any stable
-Cosign v3 from v3.0.2 on PATH), so they check what users of the setup
-action check. `gh` is not digest-pinned: no reviewed `gh` pin exists, and
+through `.ci/install-release-tools.sh`. The publisher resolves it once,
+before the "publish <tag>" prompt, and refuses there, before anything is
+signed or uploaded to Rekor, when the copy's SHA-256 differs from the pin or
+the binary cannot be installed; the signing policy also refuses a version
+other than the pinned one. `release_cosign_pinned` rechecks the SHA-256
+before every Cosign execution. Post-signing and distribution verification
+keep using `release_cosign`, the consumer policy (any stable Cosign v3 from
+v3.0.2 on PATH), so they check what users of the setup action check. They
+run with the same private copy, named `cosign` and alone in its directory,
+first on PATH (SHA-256 rechecked before each verification), so a publisher
+without a PATH `cosign` can verify what it signed. The private copy lives in
+`$TMPDIR` (or `/tmp`), which must allow execution. A separate
+`--check-distribution` run still uses the PATH `cosign`. `gh` is not digest-pinned: no reviewed `gh` pin exists, and
 the publisher relies on Hunor's installed, logged-in `gh`. A baseline outside the upload directory records all twelve
 names, sizes and digests. Checked files become read-only; hashes are checked
 before every upload. Build metadata and diagnostics are not release assets.

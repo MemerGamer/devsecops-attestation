@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Hunor's local release publisher. No CI or noninteractive entry point."""
 import argparse
+import contextlib
 import filecmp
 import hashlib
 import importlib.util
@@ -14,6 +15,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from typing import NamedTuple
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -121,10 +123,11 @@ def mirror_check(forge_repo, github_repo):
         raise ValueError('mirror checker did not report identical refs')
 
 
-def verify(directory, tag):
+def verify(directory, tag, cosign=None):
+    # The consumer policy is unchanged; with cosign it finds the pinned copy first on PATH.
     run(['bash', '-euo', 'pipefail', '-c',
          'source "$1/release-policy.sh"; release_verify "$1" "$2" "$3/checksums.txt" "$3/checksums.txt.sigstore.json"',
-         'release-verify', str(ROOT/'actions/setup'), tag[1:], str(directory)])
+         'release-verify', str(ROOT/'actions/setup'), tag[1:], str(directory)], env=consumer_env(cosign))
 
 
 def inventories(api, release_id, baseline):
@@ -138,11 +141,11 @@ def inventories(api, release_id, baseline):
     return sorted((a['id'], a['name'], a['size']) for a in result)
 
 
-def install_checks(directory, tag, base, local):
+def install_checks(directory, tag, base, local, cosign=None):
     for target in assets.TARGETS:
         os_name, arch = target.split('_')
         installed = directory/('install-'+target)
-        env = dict(os.environ, INPUT_VERSION=tag[1:], INPUT_REPOSITORY='MemerGamer/devsecops-attestation',
+        env = dict(consumer_env(cosign), INPUT_VERSION=tag[1:], INPUT_REPOSITORY='MemerGamer/devsecops-attestation',
                    INPUT_DOWNLOAD_BASE_URL=base, INPUT_INSTALL_DIR=str(installed), INPUT_VERIFY_SIGNATURE='true',
                    GITHUB_ACTION_PATH=str(ROOT/'actions/setup'), RUNNER_TEMP=str(directory),
                    RUNNER_OS={'darwin': 'macOS', 'linux': 'Linux', 'windows': 'Windows'}[os_name],
@@ -162,7 +165,7 @@ def install_checks(directory, tag, base, local):
             raise ValueError('setup install outputs differ')
 
 
-def distribution(args, local, baseline, record):
+def distribution(args, local, baseline, record, cosign=None):
     mirror_check(args.forgejo_repo, args.github_repo)
     copies, inventories_before = [], []
     for forge, api, repo_url, base in [
@@ -184,8 +187,8 @@ def distribution(args, local, baseline, record):
             for name in baseline:
                 if not filecmp.cmp(local/name, downloaded/name, shallow=False):
                     raise ValueError('downloaded bytes differ from baseline')
-            verify(downloaded, args.tag)
-            install_checks(Path(scratch), args.tag, base, local)
+            verify(downloaded, args.tag, cosign)
+            install_checks(Path(scratch), args.tag, base, local, cosign)
             # Keep both downloaded sets until the direct comparison below.
             copy = args.baseline.parent/('download-'+forge)
             shutil.copytree(downloaded, copy)
@@ -264,16 +267,25 @@ def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+class PinnedCosign(NamedTuple):
+    binary: Path
+    version: str
+    sha256: str
+
+
 def pinned_cosign(scratch):
     """Resolve Cosign like the key ceremony: a private copy of the PATH binary,
-    or the verified installer, accepted only with the pinned SHA-256."""
+    or the verified installer, accepted only with the pinned SHA-256.
+    The result is scratch/bin/cosign, alone in a private 0700 directory."""
     version, expected = cosign_pin()
     if os.uname().sysname != 'Linux' or os.uname().machine != 'x86_64':
         raise ValueError('the pinned release-signing Cosign requires linux/amd64')
+    directory = scratch/'bin'
+    directory.mkdir(mode=0o700)
+    binary = directory/'cosign'
     found = shutil.which('cosign')
     if found:
         # Verify and execute the same private copy, even if PATH changes later.
-        binary = scratch/'cosign'
         shutil.copyfile(found, binary)
         binary.chmod(0o700)
         if sha256(binary) != expected:
@@ -285,23 +297,44 @@ def pinned_cosign(scratch):
                 env=dict(os.environ, RELEASE_TOOLS_DIR=str(scratch/'tools')))
         except subprocess.CalledProcessError as error:
             raise ValueError(f'cosign is not on PATH and the pinned {COSIGN_PIN} install failed') from error
-        binary = scratch/'tools'/COSIGN_PIN
-        if not binary.is_file() or binary.is_symlink():
-            raise ValueError(f'pinned cosign binary is missing after install: {binary}')
+        installed = scratch/'tools'/COSIGN_PIN
+        if not installed.is_file() or installed.is_symlink():
+            raise ValueError(f'pinned cosign binary is missing after install: {installed}')
+        # The consumer policy looks up `cosign` on PATH, so the copy needs that name.
+        installed.replace(binary)
         if sha256(binary) != expected:
             raise ValueError('installed cosign SHA-256 does not match the pin in .ci/release-tools.json')
-    return binary, version, expected
+    return PinnedCosign(binary, version, expected)
 
 
-def sign(directory, key):
+@contextlib.contextmanager
+def signing_cosign():
+    """Pinned Cosign for one publication: signing, post-signing verification and
+    distribution checks run the same bytes; the private copy is deleted on exit."""
+    with tempfile.TemporaryDirectory(prefix='release-cosign-bin-') as scratch:
+        yield pinned_cosign(Path(scratch))
+
+
+def consumer_env(cosign, env=None):
+    """Environment for consumer-policy verification. With a pinned Cosign, its
+    private directory (holding only `cosign`, SHA-256 rechecked here) is first on PATH."""
+    env = dict(os.environ if env is None else env)
+    if cosign is None:
+        return env
+    binary = cosign.binary
+    if binary.name != 'cosign' or binary.is_symlink() or not binary.is_file() or sha256(binary) != cosign.sha256:
+        raise ValueError('pinned cosign binary is missing or no longer matches the pin in .ci/release-tools.json')
+    env['PATH'] = os.pathsep.join(entry for entry in (str(binary.parent), env.get('PATH', '')) if entry)
+    return env
+
+
+def sign(directory, key, cosign):
     human_gate()
     key = private_key_path(key)
-    with tempfile.TemporaryDirectory(prefix='release-cosign-bin-') as scratch:
-        binary, version, expected = pinned_cosign(Path(scratch))
-        # release_cosign_pinned rechecks the SHA-256 before every execution.
-        run(['bash', '-euo', 'pipefail', '-c',
-             'source "$1/release-policy.sh"; release_cosign_pinned "$4" "$5" "$6" sign-blob --key "$2" --bundle "$3/checksums.txt.sigstore.json" --new-bundle-format=true --use-signing-config=false --tlog-upload=true --rekor-url=https://rekor.sigstore.dev "$3/checksums.txt"',
-             'release-sign', str(ROOT/'actions/setup'), str(key), str(directory), str(binary), expected, version])
+    # release_cosign_pinned rechecks the SHA-256 before every execution.
+    run(['bash', '-euo', 'pipefail', '-c',
+         'source "$1/release-policy.sh"; release_cosign_pinned "$4" "$5" "$6" sign-blob --key "$2" --bundle "$3/checksums.txt.sigstore.json" --new-bundle-format=true --use-signing-config=false --tlog-upload=true --rekor-url=https://rekor.sigstore.dev "$3/checksums.txt"',
+         'release-sign', str(ROOT/'actions/setup'), str(key), str(directory), str(cosign.binary), cosign.sha256, cosign.version])
 
 
 def check_ancestor(commit):
@@ -400,10 +433,22 @@ def publish(args):
     assets.rebuild_manifest(payload, args.tag)
     print(f'checked {args.tag}, tag object {tag_object}, commit {commit}, 20 rebuilt binaries, five archives and ten payload digests')
     print('upload names: '+', '.join(sorted(assets.names(args.tag)+['checksums.txt', 'checksums.txt.sigstore.json'])))
-    if input(f'Hunor: type "publish {args.tag}" to sign and publish these bytes: ') != 'publish '+args.tag:
-        raise ValueError('publication not confirmed')
-    sign(payload, args.key)
-    verify(payload, args.tag)
+    confirm_sign_publish(args, payload, notes, forge_api, tag_object, commit)
+
+
+def confirm_sign_publish(args, payload, notes, forge_api, tag_object, commit):
+    # Resolve the pinned Cosign before the prompt: if it cannot be prepared,
+    # nothing is signed or uploaded to Rekor. Verification after signing and
+    # the distribution checks run the same private copy.
+    with signing_cosign() as cosign:
+        if input(f'Hunor: type "publish {args.tag}" to sign and publish these bytes: ') != 'publish '+args.tag:
+            raise ValueError('publication not confirmed')
+        sign(payload, args.key, cosign)
+        verify(payload, args.tag, cosign)
+        publish_signed(args, payload, notes, forge_api, tag_object, commit, cosign)
+
+
+def publish_signed(args, payload, notes, forge_api, tag_object, commit, cosign):
     baseline = assets.baseline(payload, args.tag)
     record = {'tag': args.tag, 'tag_object': tag_object, 'commit': commit, 'forgejo_repo': args.forgejo_repo,
               'github_repo': args.github_repo, 'directory': str(payload), 'assets': baseline}
@@ -432,7 +477,7 @@ def publish(args):
         raise
     assets.check_baseline(payload, baseline, args.tag)
     github_copy(args, payload, baseline)
-    distribution(args, payload, baseline, record)
+    distribution(args, payload, baseline, record, cosign)
     print(f'kept verified local baseline at {args.baseline}')
 
 

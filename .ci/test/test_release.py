@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -50,9 +51,10 @@ class PublisherTests(unittest.TestCase):
             link.symlink_to(key)
             with self.assertRaisesRegex(ValueError, 'owned regular 0600 file'):
                 publisher.private_key_path(link)
+            unused = publisher.PinnedCosign(Path('/nonexistent/cosign'), 'v3.1.4', '0'*64)
             with patch.object(publisher, 'human_gate'), patch.object(publisher, 'run') as run:
                 with self.assertRaisesRegex(ValueError, 'owned regular 0600 file'):
-                    publisher.sign(parent, link)
+                    publisher.sign(parent, link, unused)
                 run.assert_not_called()
             # Exercise argument handling too: main must preserve the supplied
             # path so sign can reject it before any resolution follows links.
@@ -113,6 +115,11 @@ if args == ['version']:
 elif args[:1] == ['sign-blob']:
     bundle = args[args.index('--bundle')+1]
     pathlib.Path(bundle).write_text('fake bundle for '+args[-1])
+elif args[:1] == ['verify-blob']:
+    bundle = args[args.index('--bundle')+1]
+    if pathlib.Path(bundle).read_text() != 'fake bundle for '+args[-1]:
+        raise SystemExit('fake verification failed')
+    print('Verified OK')
 else:
     raise SystemExit('unexpected fake cosign command')
 """
@@ -149,11 +156,14 @@ else:
         self.bin = self.base/'bin'
         self.bin.mkdir()
         for name in ('bash', 'python3', 'uname', 'dirname', 'mkdir', 'mktemp', 'chmod', 'rm',
-                     'sha256sum', 'cut', 'awk', 'env', 'cat'):
+                     'sha256sum', 'cut', 'awk', 'env', 'cat', 'grep'):
             (self.bin/name).symlink_to(shutil.which(name))
         self.curl_source = self.base/'download'
+        self.curl_log = self.base/'curl.log'
         (self.bin/'curl').write_text(f"""#!/usr/bin/python3
 import pathlib, shutil, sys
+with open({str(self.curl_log)!r}, 'a') as log:
+    log.write(sys.argv[-3]+'\\n')
 source = pathlib.Path({str(self.curl_source)!r})
 if not source.is_file():
     sys.exit(22)
@@ -172,6 +182,10 @@ shutil.copyfile(source, sys.argv[sys.argv.index('-o')+1])
         path = path or self.fake
         path.write_text(self.FAKE_COSIGN.format(log=str(self.log), version=version, on_version=on_version))
         path.chmod(0o755)
+
+    def sign(self):
+        with publisher.signing_cosign() as cosign:
+            publisher.sign(self.payload, self.key, cosign)
 
     def calls(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
@@ -207,32 +221,133 @@ shutil.copyfile(source, sys.argv[sys.argv.index('-o')+1])
     def test_correct_pinned_path_binary_is_used(self):
         shutil.copyfile(self.fake, self.bin/'cosign')
         (self.bin/'cosign').chmod(0o755)
-        publisher.sign(self.payload, self.key)
+        self.sign()
         self.assert_signed_with_private_copy('cosign')
 
     def test_wrong_digest_on_path_refuses_before_execution(self):
         self.write_fake(path=self.bin/'cosign', version='v3.1.4 ')
         with self.assertRaisesRegex(ValueError, 'PATH cosign SHA-256 does not match the cosign-v3.1.4 pin'):
-            publisher.sign(self.payload, self.key)
+            self.sign()
         self.assertEqual(self.calls(), [])
         self.assertFalse((self.payload/'checksums.txt.sigstore.json').exists())
 
     def test_missing_binary_refuses_when_pinned_install_fails(self):
         with self.assertRaisesRegex(ValueError, 'cosign is not on PATH and the pinned cosign-v3.1.4 install failed'):
-            publisher.sign(self.payload, self.key)
+            self.sign()
         self.assertEqual(self.calls(), [])
         self.assertFalse((self.payload/'checksums.txt.sigstore.json').exists())
 
     def test_installer_fallback_uses_verified_download(self):
         shutil.copyfile(self.fake, self.curl_source)
-        publisher.sign(self.payload, self.key)
-        self.assert_signed_with_private_copy(publisher.COSIGN_PIN)
+        self.sign()
+        self.assert_signed_with_private_copy('cosign')
 
     def test_installer_rejects_corrupt_download_before_execution(self):
         self.write_fake(path=self.curl_source, on_version='print("tampered")')
         with self.assertRaisesRegex(ValueError, 'pinned cosign-v3.1.4 install failed'):
-            publisher.sign(self.payload, self.key)
+            self.sign()
         self.assertEqual(self.calls(), [])
+
+    def confirm(self, publish_signed):
+        args = SimpleNamespace(tag='v0.5.0', key=self.key)
+        with patch('builtins.input', return_value='publish v0.5.0') as self.prompt, \
+             patch.object(publisher, 'publish_signed', side_effect=publish_signed) as self.uploaded:
+            publisher.confirm_sign_publish(args, self.payload, 'notes', 'forge-api', 'tag-object', 'commit')
+
+    def test_publish_without_path_cosign_verifies_with_the_signing_binary(self):
+        # No cosign on PATH: the installed pin signs, and post-signing
+        # verification (consumer policy) must run those same private bytes.
+        self.assertIsNone(shutil.which('cosign', path=str(self.bin)))
+        (self.root/'actions/setup/release-keys/release-v1.pub').write_text('throwaway non-key data\n')
+        shutil.copyfile(self.fake, self.curl_source)
+        seen = {}
+        def publish_signed(args, payload, notes, forge_api, tag_object, commit, cosign):
+            # Upload and distribution checks get the same, still existing copy.
+            seen['binary'] = cosign.binary
+            self.assertTrue(cosign.binary.is_file())
+            self.assertEqual(publisher.consumer_env(cosign)['PATH'].split(os.pathsep)[0], str(cosign.binary.parent))
+            self.assertEqual(sorted(os.listdir(cosign.binary.parent)), ['cosign'])
+        self.confirm(publish_signed)
+        self.prompt.assert_called_once()
+        self.uploaded.assert_called_once()
+        calls = self.calls()
+        self.assertEqual([c['args'][0] for c in calls], ['version', 'sign-blob', 'version', 'verify-blob'])
+        self.assertEqual({c['argv0'] for c in calls}, {str(seen['binary'])})
+        self.assertEqual(seen['binary'].name, 'cosign')
+        self.assertFalse(seen['binary'].exists(), 'private copy must be removed after publication')
+        self.assertEqual(calls[3]['args'], [
+            'verify-blob', '--key', str(self.root/'actions/setup/release-keys/release-v1.pub'),
+            '--bundle', str(self.payload/'checksums.txt.sigstore.json'), '--new-bundle-format=true',
+            '--insecure-ignore-tlog=false', '--private-infrastructure=false', '--use-signed-timestamps=false',
+            '--trusted-root=', '--rekor-url=https://rekor.sigstore.dev', str(self.payload/'checksums.txt')])
+        self.assertEqual(len(self.curl_log.read_text().splitlines()), 1)
+
+    def test_nothing_is_signed_when_the_pinned_cosign_cannot_be_prepared(self):
+        def no_download():
+            pass
+        def wrong_path_digest():
+            self.write_fake(path=self.bin/'cosign', version='v3.1.4 ')
+        def corrupt_download():
+            self.write_fake(path=self.curl_source, on_version='print("tampered")')
+        for case, message in ((no_download, 'pinned cosign-v3.1.4 install failed'),
+                              (wrong_path_digest, 'PATH cosign SHA-256 does not match'),
+                              (corrupt_download, 'pinned cosign-v3.1.4 install failed')):
+            with self.subTest(case=case.__name__):
+                for path in (self.bin/'cosign', self.curl_source):
+                    path.unlink(missing_ok=True)
+                case()
+                with patch.object(publisher, 'sign') as signed, patch.object(publisher, 'verify') as verified:
+                    with self.assertRaisesRegex(ValueError, message):
+                        self.confirm(None)
+                # Refused before the confirmation prompt, so before any signing.
+                self.prompt.assert_not_called()
+                signed.assert_not_called()
+                verified.assert_not_called()
+                self.uploaded.assert_not_called()
+                self.assertEqual(self.calls(), [])
+                self.assertFalse((self.payload/'checksums.txt.sigstore.json').exists())
+
+    def test_verify_refuses_a_changed_pinned_binary(self):
+        shutil.copyfile(self.fake, self.curl_source)
+        with publisher.signing_cosign() as cosign, patch.object(publisher, 'run') as run:
+            with open(cosign.binary, 'a') as binary:
+                binary.write('# changed\n')
+            with self.assertRaisesRegex(ValueError, 'no longer matches the pin'):
+                publisher.verify(self.payload, 'v0.5.0', cosign)
+            run.assert_not_called()
+
+    def installer(self, *names):
+        return subprocess.run(['bash', str(self.root/'.ci/install-release-tools.sh'), *names],
+                              env=dict(os.environ, RELEASE_TOOLS_DIR=str(self.base/'tools')),
+                              capture_output=True, text=True, timeout=60)
+
+    def test_installer_refuses_non_github_urls_before_download(self):
+        pins = json.loads((self.root/'.ci/release-tools.json').read_text())
+        shutil.copyfile(self.fake, self.curl_source)
+        for url in ('https://github.com.evil.example/a', 'https://github.com@evil.example/a',
+                    'http://github.com/a', 'https://evil.example/https://github.com/a', 'https://GITHUB.com/a'):
+            with self.subTest(url=url):
+                pins[publisher.COSIGN_PIN]['url'] = url
+                (self.root/'.ci/release-tools.json').write_text(json.dumps(pins))
+                result = self.installer(publisher.COSIGN_PIN)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('must be an https://github.com/ release asset', result.stderr)
+                self.assertFalse(self.curl_log.exists(), 'curl must not run for a refused URL')
+                self.assertFalse((self.base/'tools'/publisher.COSIGN_PIN).exists())
+
+    def test_installer_extracts_from_the_hashed_archive(self):
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode='w:gz') as tar:
+            info = tarfile.TarInfo('syft')
+            info.size = 4
+            tar.addfile(info, io.BytesIO(b'tool'))
+        self.curl_source.write_bytes(archive.getvalue())
+        pins = json.loads((self.root/'.ci/release-tools.json').read_text())
+        pins['syft']['sha256'] = hashlib.sha256(archive.getvalue()).hexdigest()
+        (self.root/'.ci/release-tools.json').write_text(json.dumps(pins))
+        result = self.installer('syft')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.base/'tools'/'syft').read_bytes(), b'tool')
 
     def policy(self, binary, digest, version, *args):
         return subprocess.run(['bash', '-euo', 'pipefail', '-c',
